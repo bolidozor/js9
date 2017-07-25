@@ -17,11 +17,11 @@ if( PLUGIN && (typeof PLUGIN !== "object" || PLUGIN.CLASS) ){
 
 // create our namespace, and specify some meta-information and params
 PLUGIN = {};
-PLUGIN.CLASS = "PLUGIN";  // class of plugins (1st part of div class)
-PLUGIN.NAME = "test";     // name of this plugin (2nd part of div class)
-PLUGIN.NDIV = 4;	  // number of div message areas
-PLUGIN.WIDTH =  512;	  // width of light window
-PLUGIN.HEIGHT = 150;	  // height of light window
+PLUGIN.CLASS = "PLUGIN";// class of plugins (1st part of div class)
+PLUGIN.NAME = "test";   // name of this plugin (2nd part of div class)
+PLUGIN.NDIV = 4;	// number of div message areas
+PLUGIN.WIDTH =  400;	// width of light window
+PLUGIN.HEIGHT = 200;	// height of light window (4 * (30 + 20 from css))
 
 // constructor: it's here that you add HTML elements to the container div
 // But you don't have to do so: you can put the HTML elements right into
@@ -31,7 +31,7 @@ PLUGIN.HEIGHT = 150;	  // height of light window
 //
 // The examaple below splits the difference: it allows the container div to
 // be empty or filled with the inner canvas, and thus support the view menu.
-PLUGIN.Test = function(){
+PLUGIN.init = function(){
     var i;
     // on entry, these elements have already been defined:
     // this.div:      the DOM element representing the div for this plugin
@@ -52,7 +52,7 @@ PLUGIN.Test = function(){
 };
 
 // write a row of text in message area associated with a given plugin
-PLUGIN.Test.prototype.message = function(message, row) {
+PLUGIN.init.prototype.message = function(message, row) {
     this.divjq.children("#message" + row).html(message);
 };
 
@@ -61,13 +61,15 @@ PLUGIN.Test.prototype.message = function(message, row) {
 // ipos: image position; origin at 1,1 (FITS convention)
 // evt:  the event passed to the callback
 PLUGIN.mousedown = function(im, ipos, evt){
-    var t = sprintf("mouseDown: ipos=%s,%s", ipos.x, ipos.y);
+    var t = sprintf("mouseDown: ipos=%s,%s",
+		    ipos.x.toFixed(2), ipos.y.toFixed(2));
     this.message(t, 0);
 };
 
 // callback when mouse is released
 PLUGIN.mouseup = function(im, ipos, evt){
-    var t = sprintf("mouseUp: ipos=%s,%s", ipos.x, ipos.y);
+    var t = sprintf("mouseUp: ipos=%s,%s",
+		    ipos.x.toFixed(2), ipos.y.toFixed(2));
     this.message(t, 0);
 };
 
@@ -78,19 +80,22 @@ PLUGIN.mousemove = function(im, ipos, evt){
     var v, t;
     v = im.raw.data[Math.floor(ipos.y-0.5) * im.raw.width + 
 		    Math.floor(ipos.x-0.5)];
-    t = sprintf("mouseMove: ipos=%s,%s val=%s", ipos.x, ipos.y, v);
+    t = sprintf("mouseMove: ipos=%s,%s val=%s",
+		ipos.x.toFixed(2), ipos.y.toFixed(2), v);
     this.message(t, 0);
 };
 
 // callback when mouse moves over the image
 PLUGIN.mouseover = function(im, ipos, evt){
-    var t = sprintf("mouseOver: ipos=%s,%s", ipos.x, ipos.y);
+    var t = sprintf("mouseOver: ipos=%s,%s",
+		    ipos.x.toFixed(2), ipos.y.toFixed(2));
     this.message(t, 0);
 };
 
 // callback when mouse moves out of the image
 PLUGIN.mouseout = function(im, ipos, evt){
-    var t = sprintf("mouseOut: ipos=%s,%s", ipos.x, ipos.y);
+    var t = sprintf("mouseOut: ipos=%s,%s",
+		    ipos.x.toFixed(2), ipos.y.toFixed(2));
     this.message(t, 0);
 };
 
@@ -120,11 +125,11 @@ PLUGIN.regionschange = function(im, xreg){
 		     xreg.x, xreg.y, xreg.width, xreg.height, xreg.angle);
         break;
     case "circle":
-        t += sprintf("ipos=%.2f,%.2f radius=%.2f", 
+        t += sprintf("ipos=%.2f,%.2f radius=%.2f",
                      xreg.x, xreg.y, xreg.radius);
         break;
     case "ellipse":
-        t += sprintf("ipos=%.2f,%.2f eradii=%.2f,%.2f angle=%.2f", 
+        t += sprintf("ipos=%.2f,%.2f eradii=%.2f,%.2f angle=%.2f",
 		     xreg.x, xreg.y, xreg.r1, xreg.r2, xreg.angle);
         break;
    case "point":
@@ -141,11 +146,20 @@ PLUGIN.regionschange = function(im, xreg){
     this.message(t, 1);
 };
 
-// callback when region changes
+// callback when image is loaded
 PLUGIN.imageload = function(im){
     var t;
     // im gives access to image object
     t = sprintf("image loaded: %s (%s,%s)", im.id, im.raw.width, im.raw.height);
+    // context is the calling instance
+    this.message(t, 3);
+};
+
+// callback when image is closed
+PLUGIN.imageclose = function(im){
+    var t;
+    // im gives access to image object
+    t = sprintf("image closed: %s", im.id);
     // context is the calling instance
     this.message(t, 3);
 };
@@ -159,8 +173,73 @@ PLUGIN.imagedisplay = function(im){
     this.message(t, 3);
 };
 
+// extended callback
+PLUGIN.setpan = function(im){
+    var t;
+    // im gives access to image object
+    t = sprintf("setpan: %s", JSON.stringify(im.getPan()));
+    // context is the calling instance
+    this.message(t, 3);
+};
+
+// extended callback
+PLUGIN.setzoom = function(im){
+    var t;
+    // im gives access to image object
+    t = sprintf("setzoom: %s", JSON.stringify(im.getZoom()));
+    // context is the calling instance
+    this.message(t, 3);
+};
+
+// extended callback
+PLUGIN.setcolormap = function(im){
+    var t;
+    // im gives access to image object
+    t = sprintf("setcolormap: %s", JSON.stringify(im.getColormap()));
+    // context is the calling instance
+    this.message(t, 3);
+};
+
+// extended callback
+PLUGIN.setscale = function(im){
+    var t;
+    // im gives access to image object
+    t = sprintf("setscale: %s", JSON.stringify(im.getScale()));
+    // context is the calling instance
+    this.message(t, 3);
+};
+
+// extended callback
+PLUGIN.setwcssys = function(im){
+    var t;
+    // im gives access to image object
+    t = sprintf("setwcssys: %s", im.getWCSSys());
+    // context is the calling instance
+    this.message(t, 3);
+};
+
+// extended callback
+PLUGIN.setwcsunits = function(im){
+    var t;
+    // im gives access to image object
+    t = sprintf("setwcsunits: %s", im.getWCSUnits());
+    // context is the calling instance
+    this.message(t, 3);
+};
+
+// extended callback
+PLUGIN.changecontrastbias = function(im){
+    var t, obj;
+    // im gives access to image object
+    obj = im.getColormap();
+    t = sprintf("change contrast bias: %s %s",
+		obj.contrast.toFixed(2), obj.bias.toFixed(2));
+    // context is the calling instance
+    this.message(t, 3);
+};
+
 // add this plugin into JS9
-JS9.RegisterPlugin(PLUGIN.CLASS, PLUGIN.NAME, PLUGIN.Test,
+JS9.RegisterPlugin(PLUGIN.CLASS, PLUGIN.NAME, PLUGIN.init,
 		   {menuItem: "pluginTest",
 		    onmousedown: PLUGIN.mousedown,
 		    onmouseup: PLUGIN.mouseup,
@@ -170,7 +249,16 @@ JS9.RegisterPlugin(PLUGIN.CLASS, PLUGIN.NAME, PLUGIN.Test,
 		    onkeypress: PLUGIN.keypress,
 		    onregionschange: PLUGIN.regionschange,
 		    onimageload: PLUGIN.imageload,
+		    onimageclose: PLUGIN.imageclose,
 		    onimagedisplay: PLUGIN.imagedisplay,
+		    onsetpan: PLUGIN.setpan,
+		    onsetzoom: PLUGIN.setzoom,
+		    onsetcolormap: PLUGIN.setcolormap,
+		    onsetscale: PLUGIN.setscale,
+		    onsetwcssys: PLUGIN.setwcssys,
+		    onsetwcsunits: PLUGIN.setwcsunits,
+		    onchangecontrastbias: PLUGIN.changecontrastbias,
 		    help: "help/plugintest.html",
 		    winTitle: "Plugin Test",
+		    winResize: true,
 		    winDims: [PLUGIN.WIDTH, PLUGIN.HEIGHT]});

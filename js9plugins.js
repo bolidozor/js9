@@ -1,4 +1,4 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
 /*globals $, JS9, Option */ 
 
@@ -71,7 +71,8 @@
 	var form = $(div).find(".JS9Archive-form")[0];
 
 	if ( form.object.value !== "" ) {
-	    var simbad = encodeURI('http://hopper.si.edu/http/simbad?' + form.object.value);
+	    var simurl = JS9.globalOpts.simbadProxy || "http://js9.si.edu/cgi-bin/simbad-proxy.cgi";
+	    var simbad = encodeURI(simurl + '?' + form.object.value);
 
 	    xhr({ url: simbad, title: "Name", status: status }, function(e, xhr) {
 		var coords = xhr.responseText.trim().split(" ");
@@ -86,7 +87,7 @@
 	} else {
 	    var im = JS9.GetImage({display: display});
 
-	    var coords = JS9.pix2wcs(im.wcs, im.raw.header.NAXIS1/2, im.raw.header.NAXIS2/2).split(/ +/);
+	    var coords = JS9.pix2wcs(im.raw.wcs, im.raw.header.NAXIS1/2, im.raw.header.NAXIS2/2).split(/ +/);
 
 	    var c0     = JS9.PixToWCS(im.raw.header.NAXIS1/2+1, im.raw.header.NAXIS2/2+1, {display: im});
 	    //var coords = c0.str.split(" ");
@@ -138,22 +139,22 @@
 	    <select class="service-menu"></select>\
 	    <select class="server-menu"></select>\
 	    <select class="source-menu"></select>\
-	    <span style="float: right;"><input type=button value="Set RA/Dec" class="get-ra-dec"><input type=button value="Retrieve Data" class="service-go"></span>	\
+	    <span style="float: right;"><input type=button value="Set RA/Dec" class="get-ra-dec">&nbsp;&nbsp;<input type=button value="Retrieve Data" class="service-go"></span>	\
 	    <p>											\
 												\
 	    <table width="98%">									\
-	    <tr><td> Object: </td> <td> <input type=text name=object size=10> </td>		\
+	    <tr><td> Object: </td> <td> <input type=text name=object size=12> </td>		\
 		<td></td>									\
 		<td></td>									\
 		<td>&nbsp;&nbsp;</td>								\
 		<td> <input type=checkbox name=gzip> Use Compression</td>			\
 	    </tr>										\
-	    <tr><td> RA:  	</td><td>	<input type=text name=ra	size=10> </td>	\
-		<td> Dec: 	</td><td>	<input type=text name=dec	size=10> </td>	\
+	    <tr><td> RA:  	</td><td>	<input type=text name=ra	size=12> </td>	\
+		<td> Dec: 	</td><td>	<input type=text name=dec	size=12> </td>	\
 		<td></td>									\
 		<td> <input type=checkbox name=CORS checked> Use CORS Proxy</td>		\
-	    <tr><td> Width: </td><td>	<input type=text name=width	size=10 value=15> </td>	\
-		<td> Height: </td><td>	<input type=text name=height	size=10 value=15> </td>	\
+	    <tr><td> Width: </td><td>	<input type=text name=width	size=12 value=15> </td>	\
+		<td> Height: </td><td>	<input type=text name=height	size=12 value=15> </td>	\
 	    </tr>										\
 	    </table>										\
 	    <div class=controls></div>								\
@@ -221,6 +222,9 @@ var strtod   = require("./strtod");
 var template = require("./template");
 var xhr      = require("./xhr");
 
+// use starbase code in js9archive? (otherwise use code in JS9)
+var use_internal = false;
+
 function CatalogService(params) {
     RemoteService.Register(params.value, this);
 
@@ -228,7 +232,7 @@ function CatalogService(params) {
     this.params = params;
 
     this.table2cat = function(im, table) {
-	var i;
+	var i, j;
 	var shape = this.params.shape;
 
 	var xcol = table[this.params.xcol];
@@ -241,40 +245,46 @@ function CatalogService(params) {
 	var pos_func = function(im, x, y) {
 	    var coords = JS9.WCSToPix(x, y, {display: im});
 
-	    return { x: coords.x, y: coords.y };
+	    if( coords ){
+		return { x: coords.x, y: coords.y };
+	    }
+	    return null;
 	};
 	var sizefunc;
 
 	switch ( shape ) {
 	 case "box":
 	    sizefunc = function(row) {
-		    return { width: 5, height: 5 };
+		    return { width: 7, height: 7 };
 		};
 	    break;
 	 case "circle":
 	    sizefunc = function(row) {
-		    return { radius: 2.5 };
+		    return { radius: 3.5};
 		};
 	    break;
 	 case "ellipse":
 	    sizefunc = function(row) {
-		    return { width: 5, height: 5 };
+		    return { width: 7, height: 7 };
 		};
 	    break;
 	}
 
 	var regs = [], pos, siz, reg;
-	for ( i = 0; i < table.data.length; i++ ) {
+	for ( i = 0, j = 0; i < table.data.length; i++ ) {
 	    pos = pos_func(im, table.data[i][xcol]*15, table.data[i][ycol]);
-	    siz = sizefunc(im, table.data[i][wcol], table.data[i][hcol]);
+	    if( pos ){
+		siz = sizefunc(im, table.data[i][wcol], table.data[i][hcol]);
 
-	    reg = {   id: i.toString(), shape: shape
-			, x: pos.x, y: pos.y
-			, width: siz.width, height: siz.height, radius: siz.radius
-			, angle: 0
-		};
+		reg = {   id: i.toString(), shape: shape
+			  , x: pos.x, y: pos.y
+			  , width: siz.width, height: siz.height, radius: siz.radius
+			  , angle: 0
+		          , data: {ra: table.data[i][xcol]*15, dec: table.data[i][ycol]}
+		      };
 
-	    regs[i] = reg;
+		regs[j++] = reg;
+	    }
 	}
 
 	return regs;
@@ -290,15 +300,29 @@ function CatalogService(params) {
 	var catalog = this;
 
 	var reply = xhr({ url: url, title: "Catalog", status: messages, CORS: values.CORS }, function(e) {
-	    var table = new Starbase(reply.responseText, { type: { default: strtod }, units: values.units });
-	    var im    = JS9.GetImage({display: values.display});
+	    var table, im, gopts, opts, shapes;
+	    im = JS9.GetImage({display: values.display});
+	    if( use_internal ){
+		table = new Starbase(reply.responseText, {type: {default: strtod}, units: values.units, skip: "#\n"});
+		gopts = $.extend(true, {}, JS9.Catalogs.opts, {tooltip: "$xreg.data.ra $xreg.data.dec"});
+		opts = {color: "yellow"};
 
-	    JS9.NewShapeLayer(values.name, JS9.Catalogs.opts, {display: im});
-	    JS9.RemoveShapes(values.name, {display: im});
+		if( !table.data.length ){
+		    JS9.error("no catalog objects found");
+		}
 
-	    var shapes = catalog.table2cat(im, table);
+		JS9.NewShapeLayer(values.name, gopts, {display: im});
+		JS9.RemoveShapes(values.name, {display: im});
 
-	    JS9.AddShapes(values.name, shapes, {color: "yellow"}, {display: im});
+		shapes = catalog.table2cat(im, table);
+
+		JS9.AddShapes(values.name, shapes, opts, {display: im});
+	    } else {
+		table = reply.responseText;
+		gopts = {};
+		gopts.units = values.units;
+		JS9.LoadCatalog(values.name, table, gopts, {display: im});
+	    }
 	});
     };
 }
@@ -339,7 +363,7 @@ var CatalogService = require("./catalog-service");
 	});
 
 	var vizCat = new CatalogService({
-	      text: "Vizier"
+	      text: "VizieR"
 	    , value: "vizCat"		
 	    , surveys: [   { value: "II/246",		text: "2MASS"				}
 			 , { value: "2MASX",		text: "2MASS Extended Source"		}
@@ -368,7 +392,7 @@ var CatalogService = require("./catalog-service");
 		    values.name = values.source + "@" + this.text;
 		}
 
-	    , shape: "circle"
+	    , shape: "box"
 	    , xcol:  "_RAJ2000", ycol: "_DEJ2000"
 	
 	});
@@ -404,6 +428,7 @@ function ImageService(params) {
 	    if ( params.handler === undefined ) {
 		var blob      = new Blob([xhr.response]);
 		blob.name = values.name;
+
 		JS9.fits.handleFITSFile(blob, { display: display });
 	    } else {
 	    	params.handler(e, xhr, params, values);
@@ -427,10 +452,11 @@ var ImageService = require("./image-service");
 	    var name;
 
 	    if ( values.name !== "" ) {
-		name = values.name + " " + values.source;
+		name = values.source + "_" + values.name;
 	    } else {
-	        name = values.source + " " + values.r + plus + values.d;
+	        name = values.source + "_" + values.r + plus + values.d;
 	    }
+	    name = name.replace(/\s+/g,"_") + ".fits";
 
 	    return name;
 	};
@@ -449,13 +475,13 @@ var ImageService = require("./image-service");
 	});
 
 	var stsDSS = new ImageService({
-	      text: "DSS@Stsci"
+	      text: "DSS@STScI"
 	    , value: "stsDSS"
-	    , surveys: [   { value: "poss2ukstu_ir",	text: "StSci DSS2 IR"	}
-			 , { value: "poss2ukstu_red",	text: "StSci DSS2 Red"	}
-			 , { value: "poss2ukstu_blue",	text: "StSci DSS2 Blue"	}
-			 , { value: "poss1_red", 	text: "StSci DSS1 Red"	}
-			 , { value: "poss1_blue",	text: "StSci DSS1 Blue"	}
+	    , surveys: [   { value: "poss2ukstu_ir",	text: "STScI DSS2 IR"	}
+			 , { value: "poss2ukstu_red",	text: "STScI DSS2 Red"	}
+			 , { value: "poss2ukstu_blue",	text: "STScI DSS2 Blue"	}
+			 , { value: "poss1_red", 	text: "STScI DSS1 Red"	}
+			 , { value: "poss1_blue",	text: "STScI DSS1 Blue"	}
 			]
 	    , url: "http://stdatu.stsci.edu/cgi-bin/dss_search?r={r}&d={d}&w={w}&h={h}&e={e}&c={c}&v={s}&f=fits"
 	    , calc: function(values) {
@@ -501,29 +527,29 @@ var ImageService = require("./image-service");
 		}
 	});
 
-	var dasch  = new ImageService({
-	      text: "DASCH"
-	    , value: "dasch"
-	    , surveys: [   { value: "plates", 		text: "Plates"		} ]
-
-	    , url: "http://dasch.rc.fas.harvard.edu/showtext.php?listflag=0&dateflag=dateform=j%20&coordflag=&radius=200&daterange=&seriesflag=&plateNumberflag=&classflag=&typeflag=%20-T%20wcsfit%20&pessimisticflag=&bflag=-j&nstars=5000&locstring=12:00:00%2030:00:00%20J2000"
-
-	    , calc: function(values) {
-		    values.radius = Math.min(Math.floor(Math.sqrt(values.w*values.w+values.h*values.h)*60), 600);
-		    values.name   = imageName(values);
-	    }
-
-	    , picker: "<input type=button value='pick' class='picker'>"
-	    , controls: "<tr>><td>Series</td>   <td><input type=text size=10 name=series></td>		\n\
-	    		      <td>Plate No</td> <td><input type=text size=10 name=plate></td>           \n\
-	    		      <td>Class</td>    <td><input type=text size=10 name=class></td></tr>      \n\
-	    		  <tr><td>Date From</td><td><input type=text size=10 name=datefr></td>          \n\
-	    		      <td>Date To</td>  <td><input type=text size=10 name=dateto></td></tr>      \n\
-			 "
-	    , handler: function (e, xhr, params, values) {
-	    	
-	    }
-	});
+//	var dasch  = new ImageService({
+//	      text: "DASCH"
+//	    , value: "dasch"
+//	    , surveys: [   { value: "plates", 		text: "Plates"		} ]
+//
+//	    , url: "http://dasch.rc.fas.harvard.edu/showtext.php?listflag=0&dateflag=dateform=j%20&coordflag=&radius=200&daterange=&seriesflag=&plateNumberflag=&classflag=&typeflag=%20-T%20wcsfit%20&pessimisticflag=&bflag=-j&nstars=5000&locstring=12:00:00%2030:00:00%20J2000"
+//
+//	    , calc: function(values) {
+//		    values.radius = Math.min(Math.floor(Math.sqrt(values.w*values.w+values.h*values.h)*60), 600);
+//		    values.name   = imageName(values);
+//	    }
+//
+//	    , picker: "<input type=button value='pick' class='picker'>"
+//	    , controls: "<tr>><td>Series</td>   <td><input type=text size=10 name=series></td>		\n\
+//	    		      <td>Plate No</td> <td><input type=text size=10 name=plate></td>           \n\
+//	    		      <td>Class</td>    <td><input type=text size=10 name=class></td></tr>      \n\
+//	    		  <tr><td>Date From</td><td><input type=text size=10 name=datefr></td>          \n\
+//	    		      <td>Date To</td>  <td><input type=text size=10 name=dateto></td></tr>      \n\
+//			 "
+//	    , handler: function (e, xhr, params, values) {
+//
+//	    }
+//	});
 
 //	var cds = new ImageService({
 //	      text: "CDS Aladin Server"
@@ -545,7 +571,7 @@ var ImageService = require("./image-service");
 //	    , url: "http://skys.gsfc.nasa.gov/cgi-bin/images?VCOORD={ra},{dec}&SURVEY={s}&SFACTR={size}&RETURN=FITS"
 //	    , calc: function(values) {
 //		    values.size = Math.floor((values.w+values.h)/2)
-//		    values.name = values.name + " " + values.source;
+//		    values.name = values.name + "_" + values.source;
 //		}
 //	})
 
@@ -567,7 +593,6 @@ exports.Register = function(name, obj) {
 
 "use strict";
 
-
 function I(x) { return x; }
 
 function starbase_Dashline(dash) {
@@ -582,8 +607,10 @@ function starbase_Dashline(dash) {
     return i;
 }
 
-function Starbase(data, options) {
-    var i, j;
+function Starbase(data, opts) {
+    var i, j, skips, done;
+
+    opts = opts || {};
 
     this.head = {};
     this.type = [];
@@ -592,12 +619,23 @@ function Starbase(data, options) {
     data = data.replace(/\s+$/,"").split("\n");
     var line = 0;
 
-    if ( options && options.skip ) {
-	while ( data[line][0] === options.skip ) { line++; }
+    if ( opts.skip ) {
+	skips = opts.skip.split("");
+	for(; line < data.length; line++){
+	    if( (skips[0] !== data[line][0])             &&
+		(skips[1] !== "\n" || data[line] !== "") ){
+		break;
+	    }
+	}
+    }
+
+    // make sure we have a header to process
+    if( (data[line] === undefined) || (data[line+1] === undefined) ){
+	return;
     }
 
     this.headline = data[line++].trim().split(/ *\t */);
-    if ( options.units ) {
+    if ( opts.units ) {
 	this.unitline = data[line++].trim().split(/ *\t */);
     }
     this.dashline = data[line++].trim().split(/ *\t */);
@@ -608,7 +646,7 @@ function Starbase(data, options) {
     //
     while ( dashes === 0 || dashes !== this.headline.length ) {
 
-	if ( !options.units ) {
+	if ( !opts.units ) {
 	    this.headline = this.dashline;
 	} else {
 	    this.headline = this.unitline;
@@ -617,18 +655,17 @@ function Starbase(data, options) {
 
 	this.dashline = data[line++].trim().split(/ *\t */);
 
-
 	dashes = starbase_Dashline(this.dashline);
     }
 
     // Create a vector of type converters
     //
     for ( i = 0; i < this.headline.length; i++ ) {
-	if ( options && options.type && options.type[this.headline[i]] ) {
-	    this.type[i] = options.type[this.headline[i]];
+	if ( opts.type && opts.type[this.headline[i]] ) {
+	    this.type[i] = opts.type[this.headline[i]];
 	} else {
-	    if ( options && options.type && options.type.default ) {
-		this.type[i] = options.type.default;
+	    if ( opts.type && opts.type.default ) {
+		this.type[i] = opts.type.default;
 	    } else {
 		this.type[i] = I;
 	    }
@@ -638,6 +675,12 @@ function Starbase(data, options) {
     // Read the data in and convert to type[]
     //
     for ( j = 0; line < data.length; line++, j++ ) {
+	// skip means end of data
+	if( (skips[0] === data[line][0])             ||
+	    (skips[1] === "\n" && data[line] === "") ){
+	    break;
+	}
+
 	this.data[j] = data[line].split('\t');
 
 	for ( i = 0; i < this.data[j].length; i++ ) {
@@ -771,6 +814,8 @@ module.exports = template;
 	var status = params.status;
 	var title = "";
 
+	var corsurl = JS9.globalOpts.corsProxy || "http://js9.si.edu/cgi-bin/CORS-proxy.cgi";
+
 	if ( params.CORS ) {
 	    params.url = params.url.replace(/\?/g, "@");
 	    params.url = params.url.replace(/&/g, "!");
@@ -778,7 +823,11 @@ module.exports = template;
 
 	    params.url = encodeURI(params.url);
 
-	    params.url="http://hopper.si.edu/http/CORS-proxy?Q=" + params.url;
+	    params.url= corsurl + "?Q=" + params.url;
+	}
+
+	if( JS9.DEBUG > 1 ){
+	    console.log("archive/catalog url: %s", params.url);
 	}
 
 	var _xhr = new XMLHttpRequest();
@@ -802,7 +851,6 @@ module.exports = template;
 	    if ( this.readyState === 4 ) {
 		if ( this.status === 200 || this.status === 0 ) {
 		    if ( status !== undefined ) { status(""); }
-
 		    func(e, this);
 		}
 	    }
@@ -815,191 +863,177 @@ module.exports = template;
 module.exports = xhr;
 
 
-},{}]},{},[1])
+},{}]},{},[1]);
+
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
-/*globals $, JS9 */ 
+/*globals $, JS9, Fitsy */
 
 "use strict";
 
-
 (function() {
 
+    /* maybePhysicalToImage: it's a hack!
+       The physical position defined by LTM/LTV is not always the file position,
+       For example, if the file foo.fits was created from another file:
+           funimage somefile.fits'[*,*,2]' foo.fits
+       its LTM/LTV keywords will referring to the parent, instead of itself.
+       In such a case, we want to convert physical position to image position
+       of the physical file.
+       This situation is signalled by the presence of a parent lcs object.
+    */
+    function maybePhysicalToImage(im, pos){
+	var lpos, ipos, npos;
+	if( im.imtab === "image" && im.parent && im.parent.lcs &&
+	    pos.x && pos.y ){
+	    lpos = {x: pos.x, y: pos.y};
+	    ipos = JS9.Image.prototype.logicalToImagePos.call(im.parent, lpos,
+							      "ophysical");
+	    npos = {x: Math.floor(ipos.x+0.5), y: Math.floor(ipos.y+0.5)};
+	}
+	return npos;
+    }
+
     function reBinImage(div, display) {
-
-    JS9.debug = 2;
-
-	var i, j;
+	var hdu, opts, npos;
 	var im   = JS9.GetImage({display: display});
 	var form = $(div).find(".binning-form")[0];
-
-	if ( !im ) { return; }
-
-	var options = $.extend(true, {}, JS9.fits.options
-	    , { table: { cx: form.cx.value , cy: form.cy.value  
-	    	       , nx: form.nx.value , ny: form.ny.value
-		       , bin: form.bin.value , filter: form.filter.value }
-	      });
-
-	var hdu = im.raw.hdu;
-
-	if ( hdu.type === "image" ) {
-
-	  switch(JS9.fitsLibrary()){
-	  case "fitsy":
-	    var bin = Math.round(Number(form.bin.value));
-	    hdu.bin        = bin;
-	    form.bin.value = bin;
-
-	    var nx = hdu.head["NAXIS1"]
-	    var ny = hdu.head["NAXIS2"]
-
-	    var xx = Math.round(nx/bin);
-	    var yy = Math.round(ny/bin);
-
-	    hdu.image = new Float32Array(nx*ny);
-
-	    for ( j = 0; j < ny; j++ ) {
-	    for ( i = 0; i < nx; i++ ) {
-		hdu.image[Math.floor(j/bin)*xx+Math.floor(i/bin)] += hdu.filedata[j*nx+i];
+	var rebin = function(im, hdu, display){
+	    var ss;
+	    var rexp = /(\[.*[a-zA-Z0-9_].*\])\[.*\]/;
+	    var topts = {display: display};
+	    if( form.separate.checked ){
+		// replace old extensions with new
+		// would be better to combine them, but ...
+		if( form.filter.value ){
+		    ss = '[' + form.filter.value.replace(/\s+/g,"") + ']';
+		    topts.id = im.id.replace(rexp, "$1") + ss;
+		    if( im.fitsFile ){
+			topts.file = im.fitsFile.replace(rexp, "$1") + ss;
+		    } else {
+			topts.file = topts.id;
+		    }
+		}
+		JS9.checkNew(new JS9.Image(hdu, topts));
+	    } else {
+		JS9.RefreshImage(hdu, topts);
 	    }
+	};
+	if ( !im || !im.raw ) { return; }
+
+	hdu = im.raw.hdu;
+
+	switch(JS9.fitsLibrary()){
+	case "fitsy":
+	    if ( hdu.imtab === "image" ) {
+		JS9.error("image binning not implemented");
+	    } else {
+		opts = $.extend(true, {}, JS9.fits.opts,
+	        { table: { xcen: form.xcen.value , ycen: form.ycen.value,
+			   xdim: form.xdim.value , ydim: form.ydim.value,
+			   bin: form.bin.value , filter: form.filter.value }
+	        });
+		Fitsy.readTableHDUData(hdu.fits, hdu, opts, function(hdu){
+		    rebin(im, hdu, display);
+		});
 	    }
-
-	    hdu.dmin = Number.MAX_VALUE;
-	    hdu.dmax = Number.MIN_VALUE;
-
-	    for ( i = 0; i < xx*yy; i++ ) {
-		hdu.dmin    = Math.min(hdu.dmin, hdu.image[i]);
-		hdu.dmax    = Math.max(hdu.dmax, hdu.image[i]);
-	    }
-
-	    hdu.axis[1] = xx;
-	    hdu.axis[2] = yy;
-	    hdu.bitpix  = -32;
-
-	    hdu.head  = Fitsy.clone(hdu.filehead);
-	    hdu.card  = Fitsy.clone(hdu.filecard);
-
-	    // Simple standard FITS WCS
-	    //
-	    Fitsy.cardcopy(hdu, "CDELT1",   hdu, "CDELT1", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CRPIX1",   hdu, "CRPIX1", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CDELT2",   hdu, "CDELT2", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CRPIX2",   hdu, "CRPIX2", undefined, function(x) { return x/bin; });
-
-	    // Adjust the CD Matrix
-	    //
-	    Fitsy.cardcopy(hdu, "CD1_1",    hdu, "CD1_1", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CD1_2",    hdu, "CD1_2", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CD2_1",    hdu, "CD2_1", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CD2_2",    hdu, "CD2_2", undefined, function(x) { return x/bin; });
-
-
-	    // DSS-II image - this is just a guess
-	    //
-	    Fitsy.cardcopy(hdu, "PLTSCALE", hdu, "PLTSCALE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "XPIXELSZ", hdu, "XPIXELSZ", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CNPIX1",   hdu, "CNPIX1",   undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "YPIXELSZ", hdu, "YPIXELSZ", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CNPIX2",   hdu, "CNPIX2",   undefined, function(x) { return x/bin; });
-
-	    // Fix up some random commonly used keywords
-	    //
-	    Fitsy.cardcopy(hdu, "PIXSCALE", hdu, "PIXSCALE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "SECPIX",   hdu, "SECPIX",   undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "SECPIX1",  hdu, "SECPIX1",  undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "SECPIX2",  hdu, "SECPIX2",  undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "XPIXSIZE", hdu, "XPIXSIZE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "YPIXSIZE", hdu, "YPIXSIZE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "PIXSCAL1", hdu, "PIXSCAL1", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "PIXSCAL2", hdu, "PIXSCAL2", undefined, function(x) { return x*bin; });
-
-	    Fitsy.cardcopy(hdu, "LTM1_1",   hdu, "LTM1_1", 1.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTM1_2",   hdu, "LTM1_2", 0.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTM2_1",   hdu, "LTM2_1", 0.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTM2_2",   hdu, "LTM2_2", 1.0, function(x) { return x/bin; });
-
-	    Fitsy.cardcopy(hdu, "LTV1",     hdu, "LTV1",   0.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTV2",     hdu, "LTV2",   0.0, function(x) { return x/bin; });
-
-	    JS9.RefreshImage(hdu, {display: display});
 	    break;
-	    case "cfitsio":
-	      JS9.error("image binning not yet implemented using cfitsio");
-	      break;
-          }
-	} else {
-	    switch(JS9.fitsLibrary()){
-	    case "fitsy":
-		Fitsy.readTableHDUData(hdu.fits, hdu, options, function(hdu){
-	            JS9.RefreshImage(hdu, {display: display});
-		});
-		break;
-	    case "cfitsio":
-		JS9.fits.getFITSImage(hdu.fits, hdu, options, function(hdu){
-		    JS9.RefreshImage(hdu, {display: display});
-		});
-		break;
+	case "cfitsio":
+	    opts = {xcen: 0, ycen: 0, xdim: 0, ydim: 0, bin: 1, filter: ""};
+	    if( JS9.isNumber(form.xcen.value) ){
+		opts.xcen = parseFloat(form.xcen.value);
 	    }
+	    if( JS9.isNumber(form.ycen.value) ){
+		opts.ycen = parseFloat(form.ycen.value);
+	    }
+	    npos = maybePhysicalToImage(im, {x: opts.xcen, y: opts.ycen});
+	    if( npos ){
+		opts.xcen = npos.x;
+		opts.ycen = npos.y;
+	    }
+	    if( JS9.isNumber(form.xdim.value) ){
+		opts.xdim = Math.floor(parseFloat(form.xdim.value));
+	    }
+	    if( JS9.isNumber(form.ydim.value) ){
+		opts.ydim = Math.floor(parseFloat(form.ydim.value));
+	    }
+	    if( JS9.isNumber(form.bin.value) ){
+		opts.bin = Math.floor(parseFloat(form.bin.value));
+	    }
+	    opts.filter = form.filter.value;
+	    opts.separate = $(form.separate).prop("checked");
+	    im.displaySection(opts);
+	    break;
 	}
     }
 
     function getBinParams(div, display) {
+	var im, ipos, lpos, form, hdu, bin;
+	var dval1 = 1;
 	if ( display === undefined ) {
 	    div     = this.div;
 	    display = this.display;
 	}
-	var im   = JS9.GetImage({display: display});
+	im   = JS9.GetImage({display: display});
 
 	if ( im ) {
-	    var form = $(div).find(".binning-form")[0];
+	    form = $(div).find(".binning-form")[0];
 
 	    if ( im.raw.hdu !== undefined ) {
+		hdu = im.raw.hdu;
+		hdu.bin = hdu.bin || 1;
 		form.rebin.disabled = false;
-		form.bin.disabled = false;
+	        if ( hdu.table !== undefined ) {
+		    form.bin.value = String(Math.floor(hdu.table.bin));
+		    form.xcen.value = String(Math.floor(hdu.table.xcen));
+		    form.ycen.value = String(Math.floor(hdu.table.ycen));
+		    form.xdim.value = String(Math.floor(hdu.table.xdim));
+		    form.ydim.value = String(Math.floor(hdu.table.ydim));
+		    form.filter.value = hdu.table.filter || "";
 
-	        if ( im.raw.hdu.table !== undefined ) {
-		    form.bin.value = im.raw.hdu.table.bin;
-		     form.cx.value = im.raw.hdu.table.cx;
-		     form.cy.value = im.raw.hdu.table.cy;
-		     form.nx.value = im.raw.hdu.table.nx;
-		     form.ny.value = im.raw.hdu.table.ny;
-		     form.filter.value = im.raw.hdu.table.filter || "";
-
-
-		     form.cx.disabled = false;
-		     form.cy.disabled = false;
-		     form.nx.disabled = false;
-		     form.ny.disabled = false;
-		     form.filter.disabled = false;
+		    form.bin.disabled = false;
+		    form.xcen.disabled = false;
+		    form.ycen.disabled = false;
+		    form.xdim.disabled = false;
+		    form.ydim.disabled = false;
+		    form.filter.disabled = false;
 		} else {
-		    if ( im.raw.hdu.bin != undefined ) {
-			form.bin.value = im.raw.hdu.bin;
-		    } else {
-			form.bin.value = 1;
+		    // incorporate ltm value in bin, if necessary
+		    if( im.parentFile && im.raw.header ){
+			dval1 = im.raw.header.LTM1_1 || 1;
 		    }
+		    ipos = {x: im.raw.width / 2, y: im.raw.height / 2};
+		    lpos = im.imageToLogicalPos(ipos);
+		    form.xcen.value = String(Math.floor(lpos.x));
+		    form.ycen.value = String(Math.floor(lpos.y));
+		    bin = Math.floor(((hdu.bin || 1) / dval1) + 0.5);
+		    form.bin.value = String(bin);
+		    form.xdim.value = String(Math.floor(hdu.naxis1 * bin));
+		    form.ydim.value = String(Math.floor(hdu.naxis2 * bin));
+		    form.filter.value = im.raw.filter || "";
 
-		     form.cx.disabled = true;
-		     form.cy.disabled = true;
-		     form.nx.disabled = true;
-		     form.ny.disabled = true;
-		     form.filter.disabled = true;
+		    form.bin.disabled = false;
+		    form.xcen.disabled = false;
+		    form.ycen.disabled = false;
+		    form.xdim.disabled = false;
+		    form.ydim.disabled = false;
+		    form.filter.disabled = false;
 		}
 	    } else {
 		form.rebin.disabled = true;
-		  form.bin.disabled = true;
 	    }
 	}
     }
 
     function binningInit() {
+	var that = this;
 	var div = this.div;
 	var display = this.display;
 	var win = this.winHandle;
 	var disclose = "";
 	var im  = JS9.GetImage({display: this.display});
 
-	if( !im || (im && (!im.raw.hdu || !im.raw.hdu.table)) ){
-	    div.innerHTML = '<p><center>Binning is available for FITS binary tables.</center>';
+	if( !im || (im && !im.raw.hdu) ){
+	    div.innerHTML = '<p style="padding: 5px"><center>FITS image sections, with binning and filtering</center>';
 	    return;
 	}
 
@@ -1007,66 +1041,72 @@ module.exports = xhr;
 	    disclose = 'disabled="disabled"';
 	}
 
-	$(div).html('<form class="binning-form" style="margin: 5px">				\
-	    <table><tr>	<td>Bin&nbsp;Factor</td>							\
+	/*eslint-disable no-multi-str */
+	$(div).html('<form class="binning-form" style="margin: 0px; padding: 8px; width: 100%; height: 100%">	\
+	    <table style="margin:0px; cellspacing:0; border-collapse:separate; border-spacing:4px 10px;"> \
+	           <tr>	<td><b>center:</b></td>								\
+			<td><input type=text name=xcen size=10 style="text-align:right;"></td>		\
+			<td><input type=text name=ycen size=10 style="text-align:right;"></td>    	\
+			<td>&nbsp(file coords of center of section)</td>						\
+		   </tr>										\
+	           <tr>	<td><b>size:</b></td>								\
+			<td><input type=text name=xdim size=10 style="text-align:right;"></td>		\
+			<td><input type=text name=ydim size=10 style="text-align:right;"></td>		\
+			<td>&nbsp(pixel width, height of section)</td>						\
+		   </tr>										\
+                   <tr>	<td><b>bin:</b></td>							\
 			<td><input type=text name=bin value=1 size=10 style="text-align:right;"></td>	\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
+			<td></td>									\
+			<td>&nbsp(bin factor applied to section)</td>						\
 		   </tr>										\
-	           <tr>	<td>Center</td>									\
-			<td><input type=text name=cx size=10 style="text-align:right;"></td>		\
-			<td><input type=text name=cy size=10 style="text-align:right;"></td>    	\
-			<td>&nbsp;</td>									\
+	           <tr>	<td><b>filter:</b></td>								\
+			<td colspan="2"><input type=text name=filter size="22" style="text-align:left;"></td>	\
+			<td>&nbsp(event/row filter for tables)</td>						\
 		   </tr>										\
-	           <tr>	<td>Image&nbsp;Size</td>								\
-			<td><input type=text name=nx size=10 style="text-align:right;"></td>		\
-			<td><input type=text name=ny size=10 style="text-align:right;"></td>		\
-			<td>&nbsp;</td>									\
-		   </tr>										\
-	           <tr>	<td>Filter</td>									\
-			<td colspan="2"><input type=text name=filter size="24" style="text-align:left;"></td>	\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
-		   </tr>										\
-	           <tr>	<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
+	           <tr>	<td><b>separate:</b></td>			\
+                        <td><input type=checkbox name=separate class="sep-image" style="text-align:left;"></td>	\
+			<td></td>									\
+			<td>&nbsp(display as a separate image?)</td>						\
 		   </tr>										\
 		   <tr>											\
-		       	<td><input type=button name=rebin value="Rebin" class="rebin-image"></td>	\
+			<td><input type=button name=rebin value="Run" class="rebin-image"></td>         \
 			<td>&nbsp;</td>									\
 			<td>&nbsp;</td>									\
-		       	<td><input type=button name=close value="Close" class="close-image" ' + disclose + '></td>	\
+                        <td>&nbsp;<input type=button name=close value="Close" class="close-image" ' + disclose + '></td> \
 		   </tr>										\
 	    </table>											\
 	    </form>');
+	/*eslint-enable no-multi-str */
 
-// 	click doesn't work on localhost on a Mac using Chrome/Safari, but mouseup does!
-//	$(div).find(".rebin-image").on("click", function () { reBinImage(div, display); });
-//	$(div).find(".close-image").on("click", function () { if( win ){ win.close(); } });
+	// click doesn't work on localhost on a Mac using Chrome/Safari, but mouseup does ...
 	$(div).find(".rebin-image").on("mouseup", function () { reBinImage(div, display); });
 	$(div).find(".close-image").on("mouseup", function () { if( win ){ win.close(); } });
+	$(div).find(".sep-image").change(function() { that.sep = $(this).prop("checked"); });
 
+	// set separate button
+	$(div).find(".sep-image").prop("checked", !!that.sep);
+
+	// get current params
 	if ( im ) {
 	    getBinParams(div, display);
 	}
     }
 
-    JS9.RegisterPlugin("Fits", "Binning", binningInit, {
+    JS9.RegisterPlugin("FITS", "Binning", binningInit, {
 	    menu: "view",
 
-            winTitle: "FITS Binary Table Binning",
+            winTitle: "Image Sections, with Binning and Filtering",
 	    winResize: true,
 
-            menuItem: "Binning",
+            menuItem: "Bin/Filter/Section",
 
-	    onimageload:    binningInit,
-	    onimagedisplay: binningInit,
+	    onplugindisplay:  binningInit,
+	    onimageload:      binningInit,
+	    onimagedisplay:   binningInit,
 
 	    help:     "fitsy/binning.html",
 
-            winDims: [400, 180],
+            winDims: [480, 240]
     });
 }());
 /*
@@ -1074,34 +1114,33 @@ module.exports = xhr;
  */
 
 /*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
-/*global $, jQuery, JS9, sprintf */
+/*global $, JS9, sprintf */
 
 // create our namespace, and specify some meta-information and params
 JS9.Blend = {};
 JS9.Blend.CLASS = "JS9";      // class of plugins (1st part of div class)
 JS9.Blend.NAME = "Blend";     // name of this plugin (2nd part of div class)
-JS9.Blend.WIDTH =  512;	  // width of light window
+JS9.Blend.WIDTH =  550;	  // width of light window
 JS9.Blend.HEIGHT = 270;	  // height of light window
 JS9.Blend.BASE = JS9.Blend.CLASS + JS9.Blend.NAME;  // CSS base class name
 
-JS9.Blend.blendModeHTML='When <b>Image Blending</b> is turned on, the images you select below will be combined using your chosen blend mode and optional opacity. See <a href="https://www.w3.org/TR/compositing-1/" target="blank">W3C Compositing and Blending</a> for info about compositing and blending.<p> <input type="checkbox" id="active" name="imageBlending" value="active" onclick="javascript:JS9.Blend.xblendmode(\'%s\', this)" checked><b>Image Blending</b>';
+JS9.Blend.blendModeHTML='When <b>Image Blending</b> is turned on, the images you select below will be combined using your chosen blend mode and optional opacity. See <a href="https://www.w3.org/TR/compositing-1/" target="blank">W3C Compositing and Blending</a> for info about compositing and blending.<p> <input type="checkbox" class="blendModeCheck" id="active" name="imageBlending" value="active" onclick="javascript:JS9.Blend.xblendmode(\'%s\', this)"><b>Image Blending</b>';
 
 JS9.Blend.imageHTML="<span style='float: left'>$active &nbsp;&nbsp; $blend &nbsp;&nbsp; $opacity</span>&nbsp;&nbsp; <span id='blendFile'>$imfile</span>";
 
-JS9.Blend.activeHTML='<input class="blendActiveCheck" type="checkbox" id="active" name="active" value="active" onclick="javascript:JS9.Blend.xactive(\'%s\', this)">blend using:';
+JS9.Blend.activeHTML='<input class="blendActiveCheck" type="checkbox" id="active" name="active" value="active" onclick="javascript:JS9.Blend.xactive(\'%s\', \'%s\', this)">blend using:';
 
-JS9.Blend.blendHTML='<select id="blendModeSelect" onfocus="this.selectedIndex=0;" onchange="JS9.Blend.xblend(\'%s\',this)"><option selected disabled>blend mode</option><option value="normal">normal</option><option value="screen">screen</option><option value="multiply">multiply</option><option value="overlay">overlay</option><option value="darken">darken</option><option value="lighten">lighten</option><option value="color-dodge">color-dodge</option><option value="color-burn">color-burn</option><option value="hard-light">hard-light</option><option value="soft-light">soft-light</option><option value="difference">difference</option><option value="exclusion">exclusion</option><option value="hue">hue</option><option value="saturation">saturation</option><option value="color">color</option> <option value="luminosity">luminosity</option></select>';
+JS9.Blend.blendHTML='<select class="blendModeSelect" onfocus="this.selectedIndex=0;" onchange="JS9.Blend.xblend(\'%s\', \'%s\', this)"><option selected disabled>blend mode</option><option value="normal">normal</option><option value="screen">screen</option><option value="multiply">multiply</option><option value="overlay">overlay</option><option value="darken">darken</option><option value="lighten">lighten</option><option value="color-dodge">color-dodge</option><option value="color-burn">color-burn</option><option value="hard-light">hard-light</option><option value="soft-light">soft-light</option><option value="difference">difference</option><option value="exclusion">exclusion</option><option value="hue">hue</option><option value="saturation">saturation</option><option value="color">color</option> <option value="luminosity">luminosity</option></select>';
 
-JS9.Blend.opacityHTML='<select id="blendOpacitySelect" onfocus="this.selectedIndex=0;" onchange="JS9.Blend.xopacity(\'%s\',this)"><option selected disabled>opacity</option><option value="1.0">opaque</option><option value="0.95">0.95</option><option value="0.9">0.90</option><option value="0.85">0.85</option><option value="0.8">0.80</option><option value="0.75">0.75</option><option value="0.7">0.70</option><option value="0.65">0.65</option><option value="0.6">0.60</option><option value="0.55">0.55</option><option value="0.5">0.50</option><option value="0.45">0.45</option><option value="0.4">0.40</option><option value="0.35">0.35</option><option value="0.3">0.30</option><option value="0.25">0.25</option><option value="0.2">0.20</option><option value="0.1">0.10</option><option value="0.0">transparent</option></select>';
+JS9.Blend.opacityHTML='<select class="blendOpacitySelect" onfocus="this.selectedIndex=0;" onchange="JS9.Blend.xopacity(\'%s\', \'%s\', this)"><option selected disabled>opacity</option><option value="1.00">opaque</option><option value="0.95">0.95</option><option value="0.90">0.90</option><option value="0.85">0.85</option><option value="0.80">0.80</option><option value="0.75">0.75</option><option value="0.70">0.70</option><option value="0.65">0.65</option><option value="0.60">0.60</option><option value="0.55">0.55</option><option value="0.50">0.50</option><option value="0.45">0.45</option><option value="0.40">0.40</option><option value="0.35">0.35</option><option value="0.30">0.30</option><option value="0.25">0.25</option><option value="0.20">0.20</option><option value="0.10">0.10</option><option value="0.0">transparent</option></select>';
 
-// JS9.Blend.imfileHTML='<input type="button" value="%s" onclick="javascript:JS9.Blend.ximfile(\'%s\', this)">';
 JS9.Blend.imfileHTML='<b>%s</b>';
 
 JS9.Blend.nofileHTML='<p><span id="blendNoFile">[Images will appear here as they are loaded]</span>';
 
 // change active state
-JS9.Blend.xactive = function(id, target){
-    var im = JS9.lookupImage(id);
+JS9.Blend.xactive = function(did, id, target){
+    var im = JS9.lookupImage(id, did);
     var active = target.checked;
     if( im ){
 	// change active mode
@@ -1110,8 +1149,8 @@ JS9.Blend.xactive = function(id, target){
 };
 
 // change blend mode
-JS9.Blend.xblend = function(id, target){
-    var im = JS9.lookupImage(id);
+JS9.Blend.xblend = function(did, id, target){
+    var im = JS9.lookupImage(id, did);
     var blend = target.options[target.selectedIndex].value;
     if( im ){
 	// change the blend mode
@@ -1122,23 +1161,14 @@ JS9.Blend.xblend = function(id, target){
 };
 
 // change opacity
-JS9.Blend.xopacity = function(id, target){
-    var im = JS9.lookupImage(id);
+JS9.Blend.xopacity = function(did, id, target){
+    var im = JS9.lookupImage(id, did);
     var opacity = target.options[target.selectedIndex].value;
     if( im ){
 	// change opacity
 	if( opacity !== "" ){
             im.blendImage(null, parseFloat(opacity));
 	}
-    }
-};
-
-// change current file
-JS9.Blend.ximfile = function(id, target){
-    var im = JS9.lookupImage(id);
-    if( im ){
-	// change "current" file to display
-	im.displayImage();
     }
 };
 
@@ -1155,15 +1185,23 @@ JS9.Blend.xblendmode = function(id, target){
 
 // get a BlendImage id based on the file image id
 JS9.Blend.imid = function(im){
-    return im.id.replace(/\./g, "_").replace(/\[.*\]/g,"")  + "BlendImage";
+    var id = im.display.id + "_" + im.id;
+    return id.replace(/[^A-Za-z0-9_]/g, "_") + "BlendImage";
+};
+
+// get a class unique between displays
+JS9.Blend.dispclass = function(im){
+    var id = JS9.Blend.BASE + "_" + im.display.id;
+    return id.replace(/[^A-Za-z0-9_]/g, "_");
 };
 
 // change the active image
 JS9.Blend.activeImage = function(im){
-    var id;
+    var id, dcls;
     if( im ){
 	id = JS9.Blend.imid(im);
-	$("." + JS9.Blend.BASE + "Image")
+	dcls = JS9.Blend.dispclass(im) + "_Image";
+	$("." + dcls)
 	    .removeClass(JS9.Blend.BASE + "ImageActive")
 	    .addClass(JS9.Blend.BASE + "ImageInactive");
 	$("#" + id)
@@ -1174,18 +1212,29 @@ JS9.Blend.activeImage = function(im){
 
 // add an image to the list of available images
 JS9.Blend.addImage = function(im){
-    var s, id, divjq;
+    var s, bl, id, divjq, dcls, dispid, imid;
     var opts = [];
+    var cls = JS9.Blend.BASE + "Image";
     if( !im ){
 	return;
     }
+    // convenience variables
+    imid = im.id;
+    dispid = im.display.id;
+    // unique id
     id = JS9.Blend.imid(im);
+    // get class for this layer 
+    dcls = JS9.Blend.dispclass(im) + "_Image";
     // value to pass to the macro expander
-    opts.push({name: "imid", value: im.id});
-    opts.push({name: "active", value: sprintf(JS9.Blend.activeHTML, im.id)});
-    opts.push({name: "opacity", value: sprintf(JS9.Blend.opacityHTML, im.id)});
-    opts.push({name: "imfile", value: sprintf(JS9.Blend.imfileHTML, im.id, im.id)});
-    opts.push({name: "blend", value: sprintf(JS9.Blend.blendHTML, im.id)});
+    opts.push({name: "imid", value: imid});
+    opts.push({name: "active", value: sprintf(JS9.Blend.activeHTML, 
+					      dispid, imid)});
+    opts.push({name: "opacity", value: sprintf(JS9.Blend.opacityHTML, 
+					       dispid,  imid)});
+    opts.push({name: "blend", value: sprintf(JS9.Blend.blendHTML, 
+					     dispid,  imid)});
+    opts.push({name: "imfile", value: sprintf(JS9.Blend.imfileHTML, 
+					      imid)});
     // remove initial message
     if( !this.blendDivs ){
 	this.blendImageContainer.html("");
@@ -1194,16 +1243,32 @@ JS9.Blend.addImage = function(im){
     s = JS9.Image.prototype.expandMacro.call(im, JS9.Blend.imageHTML, opts);
     // add image html to the image container
     divjq = $("<div>")
-	.addClass(JS9.Blend.BASE + "Image")
-	.addClass(JS9.Blend.BASE + "ImageActive")
+	.addClass(cls)
+	.addClass(dcls)
 	.attr("id", id)
-	.prop("imid", im.id)
+	.prop("imid", imid)
 	.html(s)
 	.appendTo(this.blendImageContainer);
-    divjq.on("mousedown touchstart", function(evt){
+    divjq.on("mousedown touchstart", function(){
 	    im.displayImage();
 	    JS9.Blend.activeImage.call(this, im);
     });
+    // set the current options
+    bl = im.blendImage();
+    if( bl ){
+	divjq.find(".blendActiveCheck").prop("checked", !!bl.active);
+	if( bl.mode !== undefined ){
+	    divjq.find(".blendModeSelect").val(bl.mode).change();
+	}
+	if( bl.opacity !== undefined ){
+	    if( typeof bl.opacity === "number" ){
+		s = bl.opacity.toFixed(2);
+	    } else {
+		s = bl.opacity;
+	    }
+	    divjq.find(".blendOpacitySelect").val(s).change();
+	}
+    }
     // one more div in the stack
     this.blendDivs++;
     //make it the current one
@@ -1237,15 +1302,16 @@ JS9.Blend.init = function(){
     //
     // create container to hold image container and header
     var that = this;
+    // clean main container
+    this.divjq.html("");
     // no images/divs loaded yet
     this.blendDivs = 0;
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
     // main container
     this.blendContainer = $("<div>")
 	.addClass(JS9.Blend.BASE + "Container")
 	.attr("id", this.id + "BlendContainer")
-        .height(this.divjq.height()-4)
-        .width(this.divjq.width()-4)
-        .css("overflow", "auto")
 	.appendTo(this.divjq);
     // header
     this.blendHeader = $("<div>")
@@ -1259,8 +1325,6 @@ JS9.Blend.init = function(){
 	.attr("id", this.id + "BlendImageContainer")
         .html(JS9.Blend.nofileHTML)
 	.appendTo(this.blendContainer);
-    // start with blend mode turned on
-    this.display.blendMode = true;
     // add currently loaded images
     for(i=0; i<JS9.images.length; i++){
 	im = JS9.images[i];
@@ -1268,6 +1332,9 @@ JS9.Blend.init = function(){
 	    JS9.Blend.addImage.call(this, im);
 	}
     }
+    // set global blend mode
+    this.divjq.find(".blendModeCheck")
+	.prop("checked", !!this.display.blendMode);
     // the images within the image container will be sortable
     this.blendImageContainer.sortable({
 	start: function(event, ui) {
@@ -1306,11 +1373,13 @@ JS9.Blend.imageclose = function(im){
 // add this plugin into JS9
 JS9.RegisterPlugin(JS9.Blend.CLASS, JS9.Blend.NAME, JS9.Blend.init,
 		   {menuItem: "Blending",
+		    onplugindisplay: JS9.Blend.init,
 		    onimageload: JS9.Blend.imageload,
 		    onimagedisplay: JS9.Blend.imagedisplay,
 		    onimageclose: JS9.Blend.imageclose,
 		    help: "help/blend.html",
-		    winTitle: "JS9 Image Blending",
+		    winTitle: "Image Blending",
+		    winResize: true,
 		    winDims: [JS9.Blend.WIDTH, JS9.Blend.HEIGHT]});
 
 /*
@@ -1318,7 +1387,7 @@ JS9.RegisterPlugin(JS9.Blend.CLASS, JS9.Blend.NAME, JS9.Blend.init,
  */
 
 /*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
-/*global $, jQuery, JS9, sprintf */
+/*global $, JS9, sprintf */
 
 // create our namespace, and specify some meta-information and params
 JS9.Blink = {};
@@ -1330,8 +1399,6 @@ JS9.Blink.BASE = JS9.Blink.CLASS + JS9.Blink.NAME;  // CSS base class name
 
 // blink rate in milliseconds
 JS9.Blink.rate = 1000;
-// starting index for blinking
-JS9.Blink.idx = 0;
 
 JS9.Blink.blinkModeHTML='When <b>Blink Images</b> is turned on, selected images will be displayed at the specified blink rate. You also can blink the selected images manually. The blink sequence can be changed by moving images around in the stack. <p>$mode&nbsp;&nbsp;&nbsp;&nbsp;$rate&nbsp;&nbsp;&nbsp;&nbsp;$manual';
 
@@ -1343,7 +1410,7 @@ JS9.Blink.manualHTML='<input type="button" id="manual" name="manualBlink" value=
 
 JS9.Blink.imageHTML="<span style='float: left'>$active&nbsp;&nbsp;</span><span id='blinkFile'>$imfile</span>";
 
-JS9.Blink.activeHTML='<input class="blinkActiveCheck" type="checkbox" id="active" name="active" value="active" onclick="javascript:JS9.Blink.xactive(\'%s\', this)">blink';
+JS9.Blink.activeHTML='<input class="blinkActiveCheck" type="checkbox" id="active" name="active" value="active" onclick="javascript:JS9.Blink.xactive(\'%s\', \'%s\', this)">blink';
 
 JS9.Blink.imfileHTML='<b>%s</b>';
 
@@ -1353,52 +1420,44 @@ JS9.Blink.nofileHTML='<p><span id="blinkNoFile">[Images will appear here as they
 JS9.Blink.start = function(display){
     var im;
     var done = false;
-    var saveidx = JS9.Blink.idx;
+    var plugin = display.pluginInstances.JS9Blink;
+    var saveidx = plugin.idx;
     while( !done ){
-	im = JS9.images[JS9.Blink.idx];
+	im = JS9.images[plugin.idx];
 	if( (im.display === display) && im.tmp.blinkMode ){
 	    im.displayImage("display");
 	    done = true;
 	}
-	if( ++JS9.Blink.idx >= JS9.images.length ){
-	    JS9.Blink.idx = 0;
+	if( ++plugin.idx >= JS9.images.length ){
+	    plugin.idx = 0;
 	}
-	if( JS9.Blink.idx === saveidx ){
+	if( plugin.idx === saveidx ){
 	    done = true;
 	}
     }
     if( display.blinkMode ){
-	JS9.Blink.tid = window.setTimeout(function(){
+	display.pluginInstances.JS9Blink.tid = window.setTimeout(function(){
 	    JS9.Blink.start(display);
-	}, JS9.Blink.rate);
+	}, plugin.rate);
     }
 };
 
 // stop blinking
 JS9.Blink.stop = function(display){
-    if( JS9.Blink.tid ){
-	window.clearTimeout(JS9.Blink.tid);
-	delete JS9.Blink.tid;
+    if( display.pluginInstances.JS9Blink.tid ){
+	window.clearTimeout(display.pluginInstances.JS9Blink.tid);
+	delete display.pluginInstances.JS9Blink.tid;
     }
     display.blinkMode = false;
-    JS9.Blink.idx = 0;
+    display.pluginInstances.JS9Blink.idx = 0;
 };
 
 // change active state
-JS9.Blink.xactive = function(id, target){
-    var im = JS9.lookupImage(id);
+JS9.Blink.xactive = function(did, id, target){
+    var im = JS9.lookupImage(id, did);
     var active = target.checked;
     if( im ){
 	im.tmp.blinkMode = active;
-    }
-};
-
-// change current file
-JS9.Blink.ximfile = function(id, target){
-    var im = JS9.lookupImage(id);
-    if( im ){
-	// change "current" file to display
-	im.displayImage();
     }
 };
 
@@ -1419,13 +1478,15 @@ JS9.Blink.xblinkmode = function(id, target){
 };
 
 // change global blink mode for this display
+// eslint-disable-next-line no-unused-vars
 JS9.Blink.xblink1 = function(id, target){
     var display = JS9.lookupDisplay(id);
+    var plugin = display.pluginInstances.JS9Blink;
     // blink once
     if( display ){
-	if( JS9.images[JS9.Blink.idx] === display.image ){
-	    if( ++JS9.Blink.idx >= JS9.images.length ){
-		JS9.Blink.idx = 0;
+	if( JS9.images[plugin.idx] === display.image ){
+	    if( ++plugin.idx >= JS9.images.length ){
+		plugin.idx = 0;
 	    }
 	}
 	JS9.Blink.start(display);
@@ -1434,24 +1495,36 @@ JS9.Blink.xblink1 = function(id, target){
 
 // change blink rate
 JS9.Blend.xrate = function(id, target){
-    // var im = JS9.lookupImage(id);
+    var plugin;
     var rate = Math.floor(target.options[target.selectedIndex].value * 1000);
-    if( !isNaN(rate) ){
-	JS9.Blink.rate = rate;
+    var display = JS9.lookupDisplay(id);
+    if( display ){
+	plugin = display.pluginInstances.JS9Blink;
+	if( !isNaN(rate) ){
+	    plugin.rate = rate;
+	}
     }
 };
 
 // get a BlinkImage id based on the file image id
 JS9.Blink.imid = function(im){
-    return im.id.replace(/\./g, "_").replace(/\[.*\]/g,"")  + "BlinkImage";
+    var id = im.display.id + "_" + im.id;
+    return id.replace(/[^A-Za-z0-9_]/g, "_") + "BlinkImage";
+};
+
+// get a class unique between displays
+JS9.Blink.dispclass = function(im){
+    var id = JS9.Blink.BASE + "_" + im.display.id;
+    return id.replace(/[^A-Za-z0-9_]/g, "_");
 };
 
 // change the active image
 JS9.Blink.activeImage = function(im){
-    var id;
+    var id, dcls;
     if( im ){
 	id = JS9.Blink.imid(im);
-	$("." + JS9.Blink.BASE + "Image")
+	dcls = JS9.Blink.dispclass(im) + "_Image";
+	$("." + dcls)
 	    .removeClass(JS9.Blink.BASE + "ImageActive")
 	    .addClass(JS9.Blink.BASE + "ImageInactive");
 	$("#" + id)
@@ -1462,16 +1535,25 @@ JS9.Blink.activeImage = function(im){
 
 // add an image to the list of available images
 JS9.Blink.addImage = function(im){
-    var s, id, divjq;
+    var s, id, divjq, dcls, dispid, imid;
     var opts = [];
+    var cls = JS9.Blink.BASE + "Image";
     if( !im ){
 	return;
     }
+    // convenience variables
+    imid = im.id;
+    dispid = im.display.id;
+    // unique id
     id = JS9.Blink.imid(im);
+    // get class for this layer 
+    dcls = JS9.Blink.dispclass(im) + "_Image";
     // value to pass to the macro expander
     opts.push({name: "imid", value: im.id});
-    opts.push({name: "active", value: sprintf(JS9.Blink.activeHTML, im.id)});
-    opts.push({name: "imfile", value: sprintf(JS9.Blink.imfileHTML, im.id, im.id)});
+    opts.push({name: "active", value: sprintf(JS9.Blink.activeHTML, 
+					      dispid, imid)});
+    opts.push({name: "imfile", value: sprintf(JS9.Blink.imfileHTML, 
+					      imid)});
     // remove initial message
     if( !this.blinkDivs ){
 	this.blinkImageContainer.html("");
@@ -1480,13 +1562,13 @@ JS9.Blink.addImage = function(im){
     s = JS9.Image.prototype.expandMacro.call(im, JS9.Blink.imageHTML, opts);
     // add image html to the image container
     divjq = $("<div>")
-	.addClass(JS9.Blink.BASE + "Image")
-	.addClass(JS9.Blink.BASE + "ImageActive")
+	.addClass(cls)
+	.addClass(dcls)
 	.attr("id", id)
-	.prop("imid", im.id)
+	.prop("imid", imid)
 	.html(s)
 	.appendTo(this.blinkImageContainer);
-    divjq.on("mousedown touchstart", function(evt){
+    divjq.on("mousedown touchstart", function(){
 	    im.displayImage();
 	    JS9.Blink.activeImage.call(this, im);
     });
@@ -1516,7 +1598,7 @@ JS9.Blink.removeImage = function(im){
 
 // constructor: add HTML elements to the plugin
 JS9.Blink.init = function(){
-    var i, s, im;
+    var i, s, im, dispid;
     var opts = [];
     // on entry, these elements have already been defined:
     // this.div:      the DOM element representing the div for this plugin
@@ -1527,28 +1609,38 @@ JS9.Blink.init = function(){
     //
     // create container to hold image container and header
     var that = this;
+    // initialize params
+    if( this.idx === undefined ){
+	this.idx = 0;
+    }
+    if( this.rate === undefined ){
+	this.rate = JS9.Blink.rate;
+    }
+    // clean main container
+    this.divjq.html("");
     // no images/divs loaded yet
     this.blinkDivs = 0;
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
     // main container
     this.blinkContainer = $("<div>")
 	.addClass(JS9.Blink.BASE + "Container")
 	.attr("id", this.id + "BlinkContainer")
-        .height(this.divjq.height()-4)
-        .width(this.divjq.width()-4)
         .css("overflow", "auto")
 	.appendTo(this.divjq);
+    dispid = this.display.id;
     opts.push({name: "mode", value: sprintf(JS9.Blink.modeHTML, 
-					    this.display.id)});
+					    dispid)});
     opts.push({name: "manual", value: sprintf(JS9.Blink.manualHTML, 
-					    this.display.id)});
+					      dispid)});
     opts.push({name: "rate", value: sprintf(JS9.Blink.rateHTML, 
-					    this.display.id)});
+					    dispid)});
     s = JS9.Image.prototype.expandMacro.call(null, JS9.Blink.blinkModeHTML, 
 					     opts);
     // header
     this.blinkHeader = $("<div>")
 	.addClass(JS9.Blink.BASE + "Header")
-	.attr("id", this.display.id + "Header")
+	.attr("id", dispid + "Header")
 	.html(s)
 	.appendTo(this.blinkContainer);
     // container to hold images
@@ -1604,11 +1696,13 @@ JS9.Blink.imageclose = function(im){
 // add this plugin into JS9
 JS9.RegisterPlugin(JS9.Blink.CLASS, JS9.Blink.NAME, JS9.Blink.init,
 		   {menuItem: "Blinking",
+		    onplugindisplay: JS9.Blink.init,
 		    onimageload: JS9.Blink.imageload,
 		    onimagedisplay: JS9.Blink.imagedisplay,
 		    onimageclose: JS9.Blink.imageclose,
 		    help: "help/blink.html",
-		    winTitle: "JS9 Image Blinking",
+		    winTitle: "Image Blinking",
+		    winResize: true,
 		    winDims: [JS9.Blink.WIDTH, JS9.Blink.HEIGHT]});
 
 /*
@@ -1616,7 +1710,7 @@ JS9.RegisterPlugin(JS9.Blink.CLASS, JS9.Blink.NAME, JS9.Blink.init,
  */
 
 /*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
-/*global $, jQuery, JS9, sprintf, Uint8Array */
+/*global $, JS9, Uint8Array */
 
 // create our namespace, and specify some meta-information and params
 JS9.Colorbar = {};
@@ -1631,6 +1725,9 @@ JS9.Colorbar.SCALED = false;
 JS9.Colorbar.TICKS = 10;
 // height of colorbar inside plugin
 JS9.Colorbar.COLORBARHEIGHT = 16;
+// JS9.Colorbar.COLORBARFONT = "11pt Arial";
+// max label length before we start skipping some labels
+JS9.Colorbar.MAXLABELSIZE = 10;
 
 // redraw colorbar on display
 JS9.Colorbar.display = function(im){
@@ -1648,10 +1745,15 @@ JS9.Colorbar.display = function(im){
     } else {
 	colorBuf = im.colorCells;
     }
+    // sanity check
+    if( !colorBuf ){
+	JS9.Colorbar.imageclear(im);
+	return;
+    }
     // first line gets colors from main display's rgb array
-    idx0 = Math.floor(colorBuf.length / canvasWidth + 0.5);
+    idx0 = colorBuf.length / canvasWidth;
     for(i=0, j=0; i<canvasWidth; i++, j+=4){
-	idx = i * idx0;
+	idx = Math.floor(i * idx0);
 	colorData[j]   = colorBuf[idx][0];
 	colorData[j+1] = colorBuf[idx][1];
 	colorData[j+2] = colorBuf[idx][2];
@@ -1663,6 +1765,10 @@ JS9.Colorbar.display = function(im){
     }
     // display colorbar
     this.ctx.putImageData(colorImg, 0, 0);
+    // if we are not displaying the tick marks, we're done
+    if( !this.showTicks ){
+	return;
+    }
     // display tick marks
     idx0 = im.psInverse.length / this.ticks;
     // clear tick display
@@ -1691,6 +1797,10 @@ JS9.Colorbar.display = function(im){
     }
     // draw tick marks and labels
     for(i=1; i<this.ticks; i++){
+	// skip repeats
+	if( (i > 1) && (tlabels[i] === tlabels[i-1]) ){
+	    continue;
+	}
 	ix = (i/this.ticks)*this.width;
 	iy = 0;
 	this.textctx.textAlign = "center";
@@ -1699,39 +1809,59 @@ JS9.Colorbar.display = function(im){
 	this.textctx.lineWidth = 1;
 	this.textctx.lineTo(ix, iy+5);
 	this.textctx.stroke();
+	// if the label is going to be wide, skip even ones
+	if( (tlabels[i].length >= JS9.Colorbar.MAXLABELSIZE) && (i % 2 === 0) ){
+	    continue;
+	}
 	this.textctx.fillText(tlabels[i], ix, iy+15);
     }
 };
 
 // constructor: add HTML elements to the plugin
-JS9.Colorbar.init = function(){
+JS9.Colorbar.init = function(width, height){
     var ratio = JS9.PIXEL_RATIO || 1;
     // on entry, these elements have already been defined:
     // this.div:      the DOM element representing the div for this plugin
     // this.divjq:    the jquery object representing the div for this plugin
-    // this.id:       the id ofthe div (or the plugin name as a default)
+    // this.id:       the id of the div (or the plugin name as a default)
     // this.display:  the display object associated with this plugin
     // this.dispMode: display mode (for internal use)
     //
     // set width and height of plugin itself
+    // display the tick marks? this will influence some height params ...
+    this.showTicks = this.divjq.attr("data-showTicks");
+    if( this.showTicks === undefined ){
+	this.showTicks = true;
+    } else if( this.showTicks === "true" ){
+	this.showTicks = true;
+    } else {
+	this.showTicks = false;
+    }
     this.width = this.divjq.attr("data-width");
     if( !this.width  ){
-	this.width  = JS9.Colorbar.WIDTH;
+	this.width = width || JS9.Colorbar.WIDTH;
     }
     this.divjq.css("width", this.width);
     this.width = parseInt(this.divjq.css("width"), 10);
     this.height = this.divjq.attr("data-height");
     if( !this.height ){
-	this.height  = JS9.Colorbar.HEIGHT;
+	// no tick mark display: default height becomes colorbar height
+	if( this.showTicks ){
+	    this.height = height || JS9.Colorbar.HEIGHT;
+	} else {
+	    this.height = height || JS9.Colorbar.COLORBARHEIGHT;
+	}
     }
     this.divjq.css("height", this.height);
     this.height = parseInt(this.divjq.css("height"), 10);
     // height of colorbar inside plugin
     this.colorbarWidth = this.width;
-    this.colorbarHeight = this.divjq.attr("data-colorbarHeight");
+    this.colorbarHeight = parseInt(this.divjq.attr("data-colorbarHeight"), 10);
     if( !this.colorbarHeight ){
 	this.colorbarHeight  = JS9.Colorbar.COLORBARHEIGHT;
     }
+    // but no larger than the overall height
+    this.colorbarHeight = Math.min(this.height, this.colorbarHeight);
     // display scaled or unscaled colorbar?
     this.scaled = this.divjq.attr("data-scaled");
     if( this.scaled === undefined ){
@@ -1741,6 +1871,7 @@ JS9.Colorbar.init = function(){
     } else {
 	this.scaled = false;
     }
+    // tick marks
     this.ticks = this.divjq.attr("data-ticks");
     if( !this.ticks ){
 	this.ticks = JS9.Colorbar.TICKS;
@@ -1759,18 +1890,28 @@ JS9.Colorbar.init = function(){
         .attr("height", this.colorbarHeight)
 	.appendTo(this.colorbarContainer);
     this.ctx = this.colorbarjq[0].getContext("2d");
-    // numeric text and tick marks
-    // (height and width changes deal with HiDPI text blur problems!)
-    this.textjq = $("<canvas>")
-	.addClass(JS9.Colorbar.BASE + "TextCanvas")
-	.attr("id", this.id + "TextCanvas")
-        .attr("width", this.width * ratio)
-        .attr("height", (this.height - this.colorbarHeight) * ratio)
-        .css("width", this.width + "px")
-        .css("height", (this.height - this.colorbarHeight) + "px")
-	.appendTo(this.colorbarContainer);
-    this.textctx = this.textjq[0].getContext("2d");
-    this.textctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    // set up for text display?
+    if( this.showTicks ){
+	// numeric text and tick marks
+	// (height and width changes deal with HiDPI text blur problems!)
+	this.textjq = $("<canvas>")
+	    .addClass(JS9.Colorbar.BASE + "TextCanvas")
+	    .attr("id", this.id + "TextCanvas")
+            .attr("width", this.width * ratio)
+            .attr("height", (this.height - this.colorbarHeight) * ratio)
+            .css("width", this.width + "px")
+            .css("height", (this.height - this.colorbarHeight) + "px")
+	    .appendTo(this.colorbarContainer);
+	this.textctx = this.textjq[0].getContext("2d");
+	// font specified in data property of div element?
+	this.colorbarFont = this.divjq.attr("data-colorbarFont");
+	if( this.colorbarFont ){
+	    this.textctx.font = this.colorbarFont;
+	} else if( JS9.Colorbar.COLORBARFONT ){
+	    this.textctx.font = JS9.Colorbar.COLORBARFONT;
+	}
+	this.textctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
     // display current colorbar, if necessary
     if( this.display.image ){
 	JS9.Colorbar.display.call(this, this.display.image);
@@ -1784,19 +1925,4584 @@ JS9.Colorbar.imagedisplay = function(im){
     }
 };
 
+// callback when image is cleared or closed
+JS9.Colorbar.imageclear = function(im){
+    if( im && (im === im.display.image) ){
+	// clear buffers
+	if( this.ctx ){
+	    this.ctx.clear();
+	}
+	if( this.textctx ){
+	    this.textctx.clear();
+	}
+    }
+};
+
 // add this plugin into JS9
 JS9.RegisterPlugin(JS9.Colorbar.CLASS, JS9.Colorbar.NAME, JS9.Colorbar.init,
 		   {menuItem: "Colorbar",
 		    onimagedisplay: JS9.Colorbar.imagedisplay,
+		    onimageclear: JS9.Colorbar.imageclear,
+		    onimageclose: JS9.Colorbar.imageclear,
 		    help: "help/colorbar.html",
-		    winTitle: "JS9 Colorbar",
+		    winTitle: "Colorbar",
 		    winDims: [JS9.Colorbar.WIDTH, JS9.Colorbar.HEIGHT]});
+// ---------------------------------------------------------------------
+// JS9 console: a window into which commands can be entered
+// basic idea borrowed from goosh.org, to whom grateful acknowledgement is made
+// ---------------------------------------------------------------------
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Console = {};
+JS9.Console.CLASS = "JS9";      // class of plugins (1st part of div class)
+JS9.Console.NAME = "Console";	// name of this plugin (2nd part of div class)
+JS9.Console.WIDTH =  512;	// width of light window
+JS9.Console.HEIGHT = 180;	// height of light window
+
+// html used by the console plugin
+JS9.Console.HTML =
+"<form name='form' onsubmit='return false;' class='JS9CmdForm' action=''>" +
+"<table class='JS9CmdTable'>" +
+"<tr class='JS9Tr'>"+
+"<td><div id='JS9CmdPrompt' class='JS9CmdPrompt'>@@PR@@</div></td>" +
+"<td class='JS9CmdTd'><input type='text' class='JS9CmdIn' autocapitalize='off' autocorrect='off' autocomplete='off' value='' /></td>" +
+"</tr>" +
+"</table>" +
+"</form>";
+
+JS9.Console.init = function(width, height){
+    // mark as valid
+    this.display.conMode = 2;
+    // set up history
+    this.hist = [];
+    this.histpos = 0;
+    this.histtemp = 0;
+    this.histused = false;
+    // add ability to handle events to this div
+    // this.divjq.attr("tabindex", "0");
+    // add container into the div
+    this.consoleConjq = $("<div>")
+	.addClass("JS9ConsoleContainer")
+	.appendTo(this.divjq);
+    // light wins: size is set by containing window
+    // for others, we need to set the size
+    if( this.winType !== "light" ){
+	// set width and height on div
+	this.width = this.divjq.attr("data-width");
+	if( !this.width  ){
+	    this.width  = width || JS9.CONWIDTH;
+	}
+	this.divjq.css("width", this.width);
+	this.width = parseInt(this.divjq.css("width"), 10);
+	this.height = this.divjq.attr("data-height");
+	if( !this.height ){
+	    this.height = height || JS9.CONHEIGHT;
+	}
+	this.divjq.css("height", this.height);
+	this.height = parseInt(this.divjq.css("height"), 10);
+	this.consoleConjq
+	    .css("width", this.width)
+	    .css("height", this.height);
+    }
+    // add ability to handle events to this div
+    this.consoleConjq.attr("tabindex", "0");
+    // event handlers:
+    // history processing
+    this.consoleConjq.on("keydown", this, function(evt){
+	return JS9.Console.keyDownCB(evt);
+    });
+    // welcome message
+    JS9.Console.out.call(this, "Type 'help' for a list of commands", "info");
+    // ready next input
+    JS9.Console.inp.call(this);
+};
+
+// prepare for new input
+// called with plugin as this
+JS9.Console.inp = function(){
+    var el;
+    var prompt = "js9>";
+    // make previous command input read-only
+    this.consoleConjq.find(".JS9CmdIn:last").attr("readonly", "readonly");
+    // add new input element
+    this.consoleConjq.append(JS9.Console.HTML.replace(/@@PR@@/g,prompt));
+    // focus on it
+    // and prevent Apple ipads from autocapitalizing, etc.
+    el = this.consoleConjq.find(".JS9CmdIn:last");
+    el.focus()
+      .attr("autocapitalize", "off")
+      .attr("autocorrect", "off")
+      .attr("autocomplete", "off");
+    JS9.jupyterFocus(el.parent());
+    // allow chaining
+    return this;
+};
+
+// output results
+// called with plugin object as this
+JS9.Console.out = function(s,c){
+    // message type
+    switch(c.toLowerCase()){
+    case "error":
+	s = "ERROR: " + s;
+	c = "Error";
+	break;
+    case "info":
+	c = "Info";
+	break;
+    case "out":
+	c = "Out";
+	break;
+    default:
+	c = "Out";
+	break;
+    }
+    // create a new output element
+    $("<div>").addClass("JS9Cmd" + c).html(s).appendTo(this.consoleConjq);
+    // allow chaining
+    return this;
+};
+
+// execute a command
+// called with plugin object as this
+JS9.Console.xeq = function(){
+    var i, cmd, obj, msg;
+    var cmdstring = this.consoleConjq.find(".JS9CmdIn:last").val();
+    var tokens = cmdstring.replace(/ {2,}/g, " ").split(" ");
+    var args = [];
+    // skip blank lines
+    if( !tokens[0] ){
+	return this;
+    }
+    cmd = tokens[0];
+    // create args array
+    for(i=1; i<tokens.length; i++){
+	args.push(tokens[i]);
+    }
+    // save history, if necessary
+    if( !this.histused ){
+	this.hist[this.hist.length] = cmdstring;
+    }
+    this.histpos = this.hist.length;
+    this.histused = false;
+    // lookup and xeq, if possible
+    try{
+	obj = JS9.lookupCommand(cmd);
+	if( obj ){
+	    obj.getDisplayInfo(this.display);
+	    switch(obj.getWhich(args)){
+	    case "get":
+		msg = obj.get(args) || "";
+		JS9.Console.out.call(this, msg, "ok");
+		break;
+	    case "set":
+		msg = obj.set(args);
+		if( msg ){
+		    JS9.Console.out.call(this, msg, "ok");
+		}
+		break;
+	    default:
+		msg = sprintf("unknown cmd type for '%s'", cmd);
+		JS9.error(msg);
+		break;
+	    }
+	} else {
+	    msg = sprintf("unknown command '%s'", cmd);
+	    if( args.length > 0 ){
+		msg = msg + " " + args;
+	    }
+	    JS9.error(msg);
+	}
+    } catch(e){
+	// output error
+	JS9.Console.out.call(this, e.message, "error");
+    }
+    // allow chaining
+    return this;
+};
+
+// console keydown: assumes console obj is passed in evt.data
+JS9.Console.keyDownCB = function(evt){
+    var v;
+    var obj = evt.data;
+    var keycode = evt.which || evt.keyCode;
+    // history idea and basic algorithm from goosh.org,
+    // to whom grateful acknowledgement is made
+    // this prevents keypress on FF (and others)
+    // https://developer.mozilla.org/en-US/docs/Web/Reference/Events/keydown
+    // evt.preventDefault();
+    if( JS9.specialKey(evt) ){
+	return;
+    }
+    v = obj.consoleConjq.find(".JS9CmdIn:last");
+    v.focus();
+    if(obj.hist.length && ((keycode===38) || (keycode===40))){
+	if( obj.hist[obj.histpos] ){
+	    obj.hist[obj.histpos] = v.val();
+	} else {
+	    obj.histtemp = v.val();
+	}
+	switch(keycode){
+	case  38:
+	    obj.histpos--;
+	    if( obj.histpos < 0 ){
+		obj.histpos = 0;
+	    }
+	    break;
+	case 40:
+	    obj.histpos++;
+	    if( obj.histpos > obj.hist.length ){
+		obj.histpos = obj.hist.length;
+	    }
+	    break;
+	default:
+	    JS9.error("internal keycode switch mixup");
+	}
+	if( obj.hist[obj.histpos] ){
+	    v.val(obj.hist[obj.histpos]);
+	    // mark history as being used
+	    if( obj.histpos !== obj.hist.length){
+		obj.histused = true;
+	    } else {
+		// except for the current input line
+		obj.histused = false;
+	    }
+	} else {
+	    v.val(obj.histtemp);
+	    obj.histused = false;
+	}
+    }
+    // xeq command when new-line is pressed and re-init
+    if( keycode === 13 ){
+	// turn off alerts to user
+	JS9.globalOpts.alerts = false;
+	JS9.Console.xeq.call(obj);
+	// turn on alerts to user
+	JS9.globalOpts.alerts = true;
+	JS9.Console.inp.call(obj);
+    }
+};
+
+JS9.RegisterPlugin("JS9", "Console", JS9.Console.init,
+		   {menuItem: "Console",
+		    winTitle: "Console",
+		    winResize: true,
+		    winDims: [JS9.Console.WIDTH, JS9.Console.HEIGHT]});
+/*
+ * FITS 3D cube plugin (April 29, 2016)
+ */
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Cube = {};
+JS9.Cube.CLASS = "JS9";  // class of plugins (1st part of div class)
+JS9.Cube.NAME = "Cube";  // name of this plugin (2nd part of div class)
+JS9.Cube.WIDTH = 512;	 // width of light window
+JS9.Cube.HEIGHT = 170;	 // height of light window
+JS9.Cube.BASE = JS9.Cube.CLASS + JS9.Cube.NAME;
+
+JS9.Cube.cubeHTML="<div class='JS9CubeLinegroup'>$header</div><p><div class='JS9CubeLinegroup'><span class='JS9CubeSpan' style='float: left'>$range&nbsp;&nbsp;&nbsp;&nbsp;$value&nbsp;&nbsp;&nbsp;&nbsp;$extname</span><span class='JS9CubeSpan' style='float: right'>$order</span></div><div class='JS9CubeLinegroup'><span class='JS9CubeSpan' style='float: left'>$first&nbsp;$next&nbsp;$prev&nbsp;$last</span><span class='JS9CubeSpan' style='float: right'>$blink&nbsp;$stop&nbsp;$rate</span></div>";
+
+JS9.Cube.headerHTML='Use the slider, text box, navigation or blink buttons to display a slice of a <b>FITS data cube</b>. Use the menu at the right to specify the slice axis.';
+
+JS9.Cube.rangeHTML='<span class="JS9CubeRangeLine">1<input type="range" min="1" max="%s" value="%s" class="JS9CubeRange" onchange="JS9.Cube.xrange(\'%s\', \'%s\', this)">%s</span>';
+
+JS9.Cube.valueHTML='<input type="text" class="JS9CubeValue" min="1" max="%s" value="%s" onchange="JS9.Cube.xvalue(\'%s\', \'%s\', this)" size="4">';
+
+JS9.Cube.firstHTML='<input type="button" class=JS9CubeBtn" value="First" onclick="JS9.Cube.xfirst(\'%s\', \'%s\', this)">';
+
+JS9.Cube.nextHTML='<input type="button" class=JS9CubeBtn" value="Next" onclick="JS9.Cube.xnext(\'%s\', \'%s\', this)">';
+
+JS9.Cube.prevHTML='<input type="button" class=JS9CubeBtn" value="Prev" onclick="JS9.Cube.xprev(\'%s\',\'%s\', this)">';
+
+JS9.Cube.lastHTML='<input type="button" class=JS9CubeBtn" value="Last" onclick="JS9.Cube.xlast(\'%s\', \'%s\', this)">';
+
+JS9.Cube.blinkHTML='<input type="button" class=JS9CubeBtn" value="Blink" onclick="JS9.Cube.xstart(\'%s\', \'%s\', this)">';
+
+JS9.Cube.stopHTML='<input type="button" class=JS9CubeBtn" value="Stop" onclick="JS9.Cube.xstop(\'%s\', \'%s\', this)">';
+
+JS9.Cube.extnameHTML='<span class="JS9CubeRangeLine">%s</span>';
+
+JS9.Cube.orderHTML='<select class="JS9CubeOrder" onchange="JS9.Cube.xorder(\'%s\', \'%s\', this)"><option value="$slice,*,*">$slice : * : *</option><option value="*,$slice,*">* : $slice : *</option><option value="*,*,$slice">* : * : $slice</option></select>';
+
+JS9.Cube.rateHTML='<select class="JS9CubeRate" onchange="JS9.Cube.xrate(\'%s\', \'%s\', this)"><option selected disabled>Rate</option><option value=".1">0.1 sec</option><option value=".25">0.25 sec</option><option value=".5">0.5 sec</option><option value="1" default>1 sec</option><option value="2">2 sec</option><option value="5">5 sec</option></select>';
+
+JS9.Cube.doSlice = function(im, slice, elarr){
+    var i, s;
+    var opts={};
+    var plugin = im.display.pluginInstances[JS9.Cube.BASE];
+    // are we still working on the previous slice?
+    if( im.parentFile && plugin.inProcess ){
+	// if so, return
+	return;
+    }
+    for(i=0; i<elarr.length; i++){
+	plugin.divjq.find(elarr[i]).val(slice);
+    }
+    s = im.expandMacro(plugin.slice, [{name: "slice", value: slice}]);
+    plugin.sval = slice;
+    plugin.inProcess = true;
+    // display slice and signal process complete
+    im.displaySlice(s, opts, function(){plugin.inProcess = false;});
+};
+
+// change range
+JS9.Cube.xrange = function(did, id, target){
+    var slice;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	slice = parseInt(target.value, 10);
+	JS9.Cube.doSlice(im, slice, [".JS9CubeValue"]);
+    }
+};
+
+// change slice value
+JS9.Cube.xvalue = function(did, id, target){
+    var slice;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	slice = parseInt(target.value, 10);
+	JS9.Cube.doSlice(im, slice, [".JS9CubeRange"]);
+    }
+};
+
+// first cube
+// eslint-disable-next-line no-unused-vars
+JS9.Cube.xfirst = function(did, id, target){
+    var slice;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	slice = 1;
+	JS9.Cube.doSlice(im, slice, [".JS9CubeValue", ".JS9CubeRange"]);
+    }
+};
+
+// next cube
+// eslint-disable-next-line no-unused-vars
+JS9.Cube.xnext = function(did, id, target){
+    var s, slice, plugin, header;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	if( im.parent && im.parent.raw && im.parent.raw.header ){
+	    header = im.parent.raw.header;
+	} else {
+	    header = im.raw.header;
+	}
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	slice = plugin.sval + 1;
+	s = "NAXIS" + plugin.sidx;
+	if( slice > header[s] ){
+	    slice = 1;
+	}
+	JS9.Cube.doSlice(im, slice, [".JS9CubeValue", ".JS9CubeRange"]);
+    }
+};
+
+// prev cube
+// eslint-disable-next-line no-unused-vars
+JS9.Cube.xprev = function(did, id, target){
+    var s, slice, plugin, header;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	if( im.parent && im.parent.raw && im.parent.raw.header ){
+	    header = im.parent.raw.header;
+	} else {
+	    header = im.raw.header;
+	}
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	slice = plugin.sval - 1;
+	if( slice < 1 ){
+	    s = "NAXIS" + plugin.sidx;
+	    slice = header[s];
+	}
+	JS9.Cube.doSlice(im, slice, [".JS9CubeValue", ".JS9CubeRange"]);
+    }
+};
+
+// last cube
+// eslint-disable-next-line no-unused-vars
+JS9.Cube.xlast = function(did, id, target){
+    var s, slice, plugin, header;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	if( im.parent && im.parent.raw && im.parent.raw.header ){
+	    header = im.parent.raw.header;
+	} else {
+	    header = im.raw.header;
+	}
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	s = "NAXIS" + plugin.sidx;
+	slice = header[s];
+	JS9.Cube.doSlice(im, slice, [".JS9CubeValue", ".JS9CubeRange"]);
+    }
+};
+
+// cube arrangement
+JS9.Cube.xorder = function(did, id, target){
+    var i, arr, plugin, header;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	if( im.parent && im.parent.raw && im.parent.raw.header ){
+	    header = im.parent.raw.header;
+	} else {
+	    header = im.raw.header;
+	}
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	plugin.slice = target.value;
+	arr = plugin.slice.split(/[ ,:]/);
+	for(i=0; i<arr.length; i++){
+	    if( arr[i] !== "*" ){
+		plugin.sidx = i+1;
+		plugin.sval = 1;
+		plugin.smax = header["NAXIS"+plugin.sidx];
+	    }
+	}
+	$(".JS9CubeRange").prop("max", plugin.smax);
+	JS9.Cube.doSlice(im, plugin.sval, [".JS9CubeValue", ".JS9CubeRange"]);
+    }
+};
+
+// blink
+JS9.Cube.blink = function(did, id, target){
+    var plugin;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	if( plugin.blinkMode === false ){
+	    delete plugin.blinkMode;
+	    return;
+	}
+	JS9.Cube.xnext(did, id, target);
+	if( plugin.blinkMode === undefined ){
+	    plugin.blinkMode = true;
+	} 
+	JS9.Cube.tid = window.setTimeout(function(){
+	    JS9.Cube.blink(did, id, target);
+	}, plugin.rate);
+    }
+};
+
+// start blink
+JS9.Cube.xstart = function(did, id, target){
+    var plugin;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	if( !plugin.blinkMode ){
+	    JS9.Cube.blink(did, id, target);
+	}
+    }
+};
+
+// stop blink
+// eslint-disable-next-line no-unused-vars
+JS9.Cube.xstop = function(did, id, target){
+    var plugin;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	plugin.inProcess = false;
+	if( plugin.blinkMode ){
+	    if( plugin.tid ){
+		window.clearTimeout(plugin.tid);
+		delete plugin.tid;
+	    }
+	    plugin.blinkMode = false;
+	}
+    }
+};
+
+// blink rate
+JS9.Cube.xrate = function(did, id, target){
+    var plugin;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	plugin = im.display.pluginInstances[JS9.Cube.BASE];
+	plugin.rate = Math.floor(parseFloat(target.value) * 1000);
+    }
+};
+
+// re-init when a different image is displayed
+JS9.Cube.display = function(){
+    if( this.lastimage !== this.display.image ){
+	JS9.Cube.init.call(this);
+    }
+};
+
+// clear when an image closes
+JS9.Cube.close = function(){
+    // ensure that plugin display is reset
+    JS9.Cube.init.call(this, {mode: "clear"});
+};
+
+// constructor: add HTML elements to the plugin
+JS9.Cube.init = function(opts){
+    var i, s, im, arr, mopts, imid, dispid, header;
+    // on entry, these elements have already been defined:
+    // this.div:      the DOM element representing the div for this plugin
+    // this.divjq:    the jquery object representing the div for this plugin
+    // this.id:       the id ofthe div (or the plugin name as a default)
+    // this.display:  the display object associated with this plugin
+    // this.dispMode: display mode (for internal use)
+    //
+    // opts is optional
+    opts = opts || {};
+    // set width and height of plugin itself
+    this.width = this.divjq.attr("data-width");
+    if( !this.width  ){
+	this.width  = JS9.Cube.WIDTH;
+    }
+    this.divjq.css("width", this.width);
+    this.width = parseInt(this.divjq.css("width"), 10);
+    this.height = this.divjq.attr("data-height");
+    if( !this.height ){
+	this.height  = JS9.Cube.HEIGHT;
+    }
+    this.divjq.css("height", this.height);
+    this.height = parseInt(this.divjq.css("height"), 10);
+    // height of cube inside plugin
+    this.cubeWidth = this.width;
+    this.cubeHeight = parseInt(this.divjq.attr("data-cubeHeight"), 10);
+    if( !this.cubeHeight ){
+	this.cubeHeight  = JS9.Cube.CUBEHEIGHT;
+    }
+    // do we have an image?
+    im = this.display.image;
+    if( im && (opts.mode !== "clear") ){
+	if( im.parent && im.parent.raw && im.parent.raw.header ){
+	    header = im.parent.raw.header;
+	} else {
+	    header = im.raw.header;
+	}
+	// convenience variables
+	imid = im.id;
+	dispid = im.display.id;
+	if( im.slice ){
+	    this.slice = im.slice.replace(/[0-9][0-9]*/,"$slice");
+	    arr = im.slice.split(/[ ,:]/);
+	    for(i=0; i<arr.length; i++){
+		if( arr[i] !== "*" ){
+		    this.sidx = i+1;
+		    this.smax = header["NAXIS"+this.sidx];
+		    this.sval = parseInt(arr[i], 10);
+		}
+	    }
+	} else {
+	    this.slice = "*,*,$slice";
+	    this.smax = header.NAXIS3;
+	    this.sidx = 3;
+	    this.sval = 1;
+	}
+	if( !this.rate ){
+	    this.rate = 1000;
+	}
+	if( this.tid !== undefined ){
+	    window.clearTimeout(this.tid);
+	    delete this.tid;
+	}
+	if( this.blinkMode !== undefined ){
+	    delete this.blinkMode;
+	}
+	if( header.NAXIS > 2 ){
+	    mopts = [];
+	    mopts.push({name: "header",  value: JS9.Cube.headerHTML});
+	    mopts.push({name: "range",
+		       value: sprintf(JS9.Cube.rangeHTML, this.smax, this.sval,
+				      dispid, imid, this.smax)});
+	    mopts.push({name: "value",
+		       value: sprintf(JS9.Cube.valueHTML, this.smax, this.sval,
+				      dispid, imid)});
+	    mopts.push({name: "first",
+		       value: sprintf(JS9.Cube.firstHTML, dispid, imid)});
+	    mopts.push({name: "next",
+		       value: sprintf(JS9.Cube.nextHTML, dispid, imid)});
+	    mopts.push({name: "prev",
+		       value: sprintf(JS9.Cube.prevHTML, dispid, imid)});
+	    mopts.push({name: "last",
+		       value: sprintf(JS9.Cube.lastHTML, dispid, imid)});
+	    mopts.push({name: "blink",
+		       value: sprintf(JS9.Cube.blinkHTML, dispid, imid)});
+	    mopts.push({name: "stop",
+		       value: sprintf(JS9.Cube.stopHTML, dispid, imid)});
+	    mopts.push({name: "order",
+		       value: sprintf(JS9.Cube.orderHTML, dispid, imid)});
+	    mopts.push({name: "rate",
+		       value: sprintf(JS9.Cube.rateHTML, dispid, imid)});
+	    mopts.push({name: "extname",
+		       value: sprintf(JS9.Cube.extnameHTML, 
+				      header.EXTNAME || "")});
+	    s = im.expandMacro(JS9.Cube.cubeHTML, mopts);
+	} else {
+	    s = "<p><center>This image is not a FITS data cube.</center>";
+	}
+	this.lastimage = im;
+    } else {
+	    s = "<p><center>FITS cube processing will appear here.</center>";
+    }
+    // clear out old html
+    this.divjq.html("");
+    // set up new html
+    this.cubeContainer = $("<div>")
+	.addClass(JS9.Cube.BASE + "Container")
+	.attr("id", this.id + "Container")
+        .attr("width", this.width)
+        .attr("height", this.height)
+	.appendTo(this.divjq);
+    this.cubeContainer.html(s);
+    // set current values
+    this.divjq.find(".JS9CubeRange").prop("max", this.smax);
+    this.divjq.find(".JS9CubeValue").prop("max", this.smax);
+    this.divjq.find(".JS9CubeOrder").val(this.slice);
+};
+
+// add this plugin into JS9
+JS9.RegisterPlugin(JS9.Cube.CLASS, JS9.Cube.NAME, JS9.Cube.init,
+		   {menuItem: "Data Cube",
+		    onplugindisplay: JS9.Cube.init,
+		    onimageload: JS9.Cube.init,
+		    onimagedisplay: JS9.Cube.display,
+		    onimageclose: JS9.Cube.close,
+		    help: "help/cube.html",
+		    winTitle: "FITS Data Cubes",
+		    winDims: [JS9.Cube.WIDTH, JS9.Cube.HEIGHT]});
+/*
+ * visibility of JS9 in-page plugin divs (January 13, 2017)
+ */
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Divs = {};
+JS9.Divs.CLASS = "JS9";	// class of plugins (1st part of div class)
+JS9.Divs.NAME = "Divs"; // name of this plugin (2nd part of div class)
+JS9.Divs.WIDTH =  400;	// width of light window
+JS9.Divs.HEIGHT = 146;	// height of light window
+JS9.Divs.BASE = JS9.Divs.CLASS + JS9.Divs.NAME;  // CSS base class name
+
+JS9.Divs.headerHTML='JS9 plugin divs can be hidden or made visible below.';
+
+JS9.Divs.divHTML="<span style='float: left'>$visible&nbsp;&nbsp;</span>&nbsp;&nbsp; <span class='JS9DivsSpan'>$div&nbsp;&nbsp</span>";
+
+JS9.Divs.nodivsHTML='<p><span class="JS9NoDivs">[No JS9 divs have been created for this display]</span>';
+
+JS9.Divs.visibleHTML='<input class="JS9DivsVisibleCheck" type="checkbox" id="visible" name="visible" value="visible" onclick="javascript:JS9.Divs.xvisible(\'%s\', \'%s\', this)">visible';
+
+JS9.Divs.divNameHTML='<b>%s</b>';
+
+// make shape div visible/invisible
+JS9.Divs.xvisible = function(display, plugin, target){
+    var mode, instance;
+    var div = JS9.lookupDisplay(display);
+    if( div ){
+	instance = div.pluginInstances[plugin];
+	if( instance ){
+	    if( target.checked ){
+		mode = "visible";
+	    } else {
+		mode = "hidden";
+	    }
+	}
+	// the plugin container contains the plugin and maybe a toolbar
+	instance.divjq.closest(".JS9PluginContainer").css("visibility", mode);
+    }
+};
+
+// add a div to the list
+JS9.Divs.addDiv = function(plugin){
+    var s, divjq;
+    var cls = JS9.Divs.BASE + "Div";
+    var opts = [];
+    // sanity checks
+    if( !plugin || !this.display.pluginInstances[plugin] ){
+	return;
+    }
+    // first time through, clear html
+    if( !this. ndiv ){
+	this.divsDivContainer.html("");
+    }
+    // value to pass to the macro expander
+    opts.push({name: "visible", value: sprintf(JS9.Divs.visibleHTML, 
+					       this.display.id, plugin)});
+    opts.push({name: "div", value: sprintf(JS9.Divs.divNameHTML, 
+					   plugin)});
+    // create the html for this div
+    s = JS9.Image.prototype.expandMacro.call(null, JS9.Divs.divHTML, opts);
+    // add div html to the div container
+    divjq = $("<div>")
+	.addClass(cls)
+        .html(s)
+	.appendTo(this.divsDivContainer);
+    // set or unset visibility buton
+    divjq.find(".JS9DivsVisibleCheck").prop("checked", 
+    this.display.pluginInstances[plugin].divjq.css("visibility") === "visible");
+    // another div was added
+    this.ndiv++;
+};
+
+// constructor: add HTML elements to the plugin
+JS9.Divs.init = function(opts){
+    var key, instances;
+    // on entry, these elements have already been defined:
+    // this.div:      the DOM element representing the div for this plugin
+    // this.divjq:    the jquery object representing the div for this plugin
+    // this.id:       the id of the div (or the plugin name as a default)
+    // this.display:  the display object associated with this plugin
+    // this.dispMode: display mode (for internal use)
+    //
+    // opts is optional
+    opts = opts || {};
+    // create container to hold div container and header
+    // clean main container
+    this.divjq.html("");
+    // no divs yet
+    this.ndiv = 0;
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
+    // main container
+    this.divsContainer = $("<div>")
+	.addClass(JS9.Divs.BASE + "Container")
+	.attr("id", this.id + "DivsContainer")
+        .css("overflow", "auto")
+	.appendTo(this.divjq);
+    // header
+    this.divsHeader = $("<div>")
+	.addClass(JS9.Divs.BASE + "Header")
+	.attr("id", this.display.id + "Header")
+	.html(JS9.Divs.headerHTML)
+	.appendTo(this.divsContainer);
+    // container to hold divs
+    this.divsDivContainer = $("<div>")
+	.addClass(JS9.Divs.BASE + "DivContainer")
+	.attr("id", this.id + "DivsDivContainer")
+        .html(JS9.Divs.nodivsHTML)
+	.appendTo(this.divsContainer);
+    // done if we are only clearing
+    if( opts.mode === "clear" ){
+	return;
+    }
+    // add current in-page plugin divs
+    instances = this.display.pluginInstances;
+    for( key in instances ){
+	if( instances.hasOwnProperty(key) ){
+	    if( instances[key].winType === "div" ){
+		JS9.Divs.addDiv.call(this, key);
+	    }
+	}
+    }
+};
+
+// add this plugin into JS9
+JS9.RegisterPlugin(JS9.Divs.CLASS, JS9.Divs.NAME, JS9.Divs.init,
+		   {menuItem: "Plugin Visibility",
+		    onplugindisplay: JS9.Divs.init,
+		    help: "help/divs.html",
+		    winTitle: "Visibility of JS9 Plugin Divs",
+		    winResize: true,
+		    winDims: [JS9.Divs.WIDTH, JS9.Divs.HEIGHT]});
+/*
+ * imarith module (March 8, 2016)
+ */
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Imarith = {};
+JS9.Imarith.CLASS = "JS9";      // class of plugins (1st part of div class)
+JS9.Imarith.NAME = "Imarith";  // name of this plugin (2nd part of div class)
+JS9.Imarith.WIDTH =  512;	 // width of light window
+JS9.Imarith.HEIGHT = 170;	 // height of light window
+JS9.Imarith.BASE = JS9.Imarith.CLASS + JS9.Imarith.NAME;
+
+JS9.Imarith.imageHTML="<div class='JS9ImarithLinegroup'>Choose an op (add, subtract, multiply, divide, min, max) and an operand (number or image) and click Run. Reset will revert to the original data.</div><div class='JS9ImarithLinegroup'><span class='JS9ImarithSpan' style='float: left'><b>$imid</b> &nbsp;&nbsp; $op &nbsp;&nbsp; $arg1 &nbsp;&nbsp; $num</span></div><p><div class='JS9ImarithLinegroup'><span class='JS9ImarithSpan' style='float: left'>$run</span><span style='float: right'>$reset</span></div>";
+
+JS9.Imarith.opHTML='<select class=JS9ImarithOp" onchange="JS9.Imarith.xop(\'%s\', \'%s\', this)"><option value="" selected disabled>op</option><option value="add">add</option><option value="sub">sub</option><option value="mul">mul</option><option value="div">div</option><option value="min">min</option><option value="max">max</option></select>';
+
+JS9.Imarith.arg1HTML='<select class=JS9ImarithArg1" onchange="JS9.Imarith.xarg1(\'%s\', \'%s\', this)"><option val="" selected disabled>operand</option><option value="num">number &#8594;</option>%s</select>';
+
+JS9.Imarith.numHTML='<input type="text" class="JS9ImarithNum" value="" onchange="JS9.Imarith.xnum(\'%s\', \'%s\', this)" size="10" placeholder="number">';
+
+JS9.Imarith.runHTML='<input type="button" class=JS9ImarithBtn" value="Run" onclick="JS9.Imarith.xrun(\'%s\', \'%s\', this)">';
+
+JS9.Imarith.resetHTML='<input type="button" class=JS9ImarithBtn" value="Reset" onclick="JS9.Imarith.xreset(\'%s\', \'%s\', this)">';
+
+// change op
+JS9.Imarith.xop = function(did, id, target){
+    var op = target.options[target.selectedIndex].value;
+    var im = JS9.lookupImage(id, did);
+    // save new op in instance record
+    if( im && op ){
+	im.display.pluginInstances.JS9Imarith.op = op;
+    }
+};
+
+// change arg1
+JS9.Imarith.xarg1 = function(did, id, target){
+    var im = JS9.lookupImage(id, did);
+    var arg1 = target.options[target.selectedIndex].value;
+    // save new arg1 in instance record
+    if( im && arg1 ){
+	im.display.pluginInstances.JS9Imarith.arg1 = arg1;
+	if( arg1 === "num" ){
+	    $(".JS9ImarithNum").css("visibility", "visible");
+	} else {
+	    $(".JS9ImarithNum").css("visibility", "hidden");
+	}
+    }
+};
+
+// change num
+JS9.Imarith.xnum = function(did, id, target){
+    var im = JS9.lookupImage(id, did);
+    var num = target.value;
+    // save new num in instance record
+    if( JS9.isNumber(num) ){
+	im.display.pluginInstances.JS9Imarith.num = parseFloat(num);
+    } else {
+	if( num ){
+	    JS9.error("please enter a real number: " + num);
+	}
+    }
+};
+
+// run image arithmetic
+// eslint-disable-next-line no-unused-vars
+JS9.Imarith.xrun = function(did, id, target){
+    var arg1, plugin;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	plugin = im.display.pluginInstances.JS9Imarith;
+	if( !plugin.op || !plugin.arg1 ){
+	    JS9.error("please select an operation and an operand");
+	}
+	if( plugin.arg1 === "num" ){
+	    if( plugin.num === undefined ){
+		JS9.error("please enter a real number for the operand");
+	    }
+	    arg1 = plugin.num;
+	} else {
+	    arg1 = plugin.arg1;
+	}
+	im.imarithData(plugin.op, arg1);
+    }
+};
+
+// reset to original data
+// eslint-disable-next-line no-unused-vars
+JS9.Imarith.xreset = function(did, id, target){
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	im.imarithData("reset");
+    }
+};
+
+// init when a different image is displayed
+JS9.Imarith.display = function(){
+    if( this.lastimage !== this.display.image ){
+	JS9.Imarith.init.call(this);
+    }
+};
+
+// clear when an image closes
+JS9.Imarith.close = function(){
+    // ensure that plugin display is reset
+    JS9.Imarith.init.call(this, {mode: "clear"});
+};
+
+// constructor: add HTML elements to the plugin
+JS9.Imarith.init = function(opts){
+    var i, s, im, tim, mopts, imid, dispid;
+    var images = "";
+    // on entry, these elements have already been defined:
+    // this.div:      the DOM element representing the div for this plugin
+    // this.divjq:    the jquery object representing the div for this plugin
+    // this.id:       the id ofthe div (or the plugin name as a default)
+    // this.display:  the display object associated with this plugin
+    // this.dispMode: display mode (for internal use)
+    //
+    // opts is optional
+    opts = opts || {};
+    // set width and height of plugin itself
+    this.width = this.divjq.attr("data-width");
+    if( !this.width  ){
+	this.width  = JS9.Imarith.WIDTH;
+    }
+    this.divjq.css("width", this.width);
+    this.width = parseInt(this.divjq.css("width"), 10);
+    this.height = this.divjq.attr("data-height");
+    if( !this.height ){
+	this.height  = JS9.Imarith.HEIGHT;
+    }
+    this.divjq.css("height", this.height);
+    this.height = parseInt(this.divjq.css("height"), 10);
+    // height of imarith inside plugin
+    this.imarithWidth = this.width;
+    this.imarithHeight = parseInt(this.divjq.attr("data-imarithHeight"), 10);
+    if( !this.imarithHeight ){
+	this.imarithHeight  = JS9.Imarith.IMARITHHEIGHT;
+    }
+    // reset param values
+    delete this.arg1;
+    delete this.op;
+    delete this.num;
+    // do we have an image?
+    im = this.display.image;
+    if( im && (opts.mode !== "clear") ){
+	// convenience variables
+	imid = im.id;
+	dispid = im.display.id;
+	// make the last one
+	this.lastim = im.id;
+	// get list of images that can be operands (other than this one)
+	for(i=0; i<JS9.images.length; i++){
+	    tim = JS9.images[i];
+	    if( tim !== im ){
+		images += sprintf('<option value="%s">%s</option>', 
+				  tim.id, tim.id);
+	    }
+	}
+	// create the html for this image
+	mopts = [];
+	mopts.push({name: "images", value: images});
+	mopts.push({name: "imid", value: imid});
+	mopts.push({name: "op", value: sprintf(JS9.Imarith.opHTML, 
+					       dispid, imid)});
+	mopts.push({name: "arg1", value: sprintf(JS9.Imarith.arg1HTML,
+						 dispid, imid, images)});
+	mopts.push({name: "num", value: sprintf(JS9.Imarith.numHTML,
+						dispid, imid)});
+	mopts.push({name: "run", value: sprintf(JS9.Imarith.runHTML,
+						dispid, imid)});
+	mopts.push({name: "reset", value: sprintf(JS9.Imarith.resetHTML,
+						  dispid, imid)});
+ 	s = JS9.Image.prototype.expandMacro.call(im, JS9.Imarith.imageHTML,
+						 mopts);
+	this.lastimage = im;
+    } else {
+	s = "<p><center>Image arithmetic will appear here.</center>";
+    }
+    // clear out old html
+    this.divjq.html("");
+    // set up new html
+    this.imarithContainer = $("<div>")
+	.addClass(JS9.Imarith.BASE + "Container")
+	.attr("id", this.id + "Container")
+        .attr("width", this.width)
+        .attr("height", this.height)
+	.appendTo(this.divjq);
+    this.imarithContainer.html(s);
+    this.imarithContainer.find(".JS9ImarithNum").css("visibility", "hidden");
+};
+
+// add this plugin into JS9
+JS9.RegisterPlugin(JS9.Imarith.CLASS, JS9.Imarith.NAME, JS9.Imarith.init,
+		   {menuItem: "Imarith",
+		    onplugindisplay: JS9.Imarith.init,
+		    onimageload: JS9.Imarith.init,
+		    onimagedisplay: JS9.Imarith.display,
+		    onimageclose: JS9.Imarith.close,
+		    help: "help/imarith.html",
+		    winTitle: "Image Arithmetic",
+		    winDims: [JS9.Imarith.WIDTH, JS9.Imarith.HEIGHT]});
+// ---------------------------------------------------------------------
+// Info plugin
+// ---------------------------------------------------------------------
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9 */
+
+// create our namespace, and specify some meta-information and params
+JS9.Info = {};
+JS9.Info.CLASS = "JS9";
+JS9.Info.NAME = "Info";
+JS9.Info.WIDTH = 325;	// width of js9Info box
+JS9.Info.HEIGHT = 325;	// height of js9Info box
+
+JS9.Info.opts = {
+    // info url
+    infoURL: "./params/info.html",
+    infoObj: {
+	file: '<tr><td><input type="text" class="column0" value="file" readonly="readonly" /></td><td colspan="2"><input type="text" name="id" class="input2" value="" readonly="readonly" /></td></tr>',
+	object: '<tr><td><input type="text" class="column0" value="object" readonly="readonly" /></td><td colspan="2"><input type="text" name="object" class="input2" value="" readonly="readonly" /></td></tr>',
+	wcscen: '<tr><td><input type="text" class="column0" value="center" readonly="readonly" /></td><td colspan="2"><input type="text" name="wcscen" class="input2" value="" readonly="readonly" /></td></tr>',
+	wcsfov: '<tr><td><input type="text" class="column0" value="fov" readonly="readonly" /></td><td colspan="2"><input type="text" name="wcsfovpix" class="input2" value="" readonly="readonly" /></td></tr>',
+	value: '<tr><td><input type="text" class="column0" value="value" readonly="readonly" /></td><td colspan="2"><input type="text" name="val3" class="input2" value="" readonly="readonly" /></td></tr>',
+	impos: '<tr><td><input type="text" class="column0" value="image" readonly="readonly" /></td><td colspan="2"><input type="text" name="ipos" class="input2" value="" readonly="readonly" /></td></tr>',
+	physpos: '<tr><td><input type="text" class="column0" value="physical" readonly="readonly" /></td><td colspan="2"><input type="text" name="ppos" class="input2" value="" readonly="readonly" /></td></tr>',
+	wcspos: '<tr><td><input type="text" class="column0" value="wcs" readonly="readonly" /></td><td colspan="2"><input type="text" name="wcspos" class="input2" value="" readonly="readonly" /></td></tr>',
+	 regions: '<tr><td><input type="text" class="column0" value="regions" readonly="readonly" /></td><td colspan="2"><textarea class="text2" name="regions" rows="4" value="" readonly="readonly" /></td></tr>',
+	 progress: '<tr><td colspan="2"><div class="JS9Progress"><progress name="progress" class="JS9ProgressBar" value="0" max="100"></progress></div></td></tr>'
+    }
+};
+
+// init plugin
+JS9.Info.init = function(){
+    var i, key, opts, obj, infoHTML;
+    // only init if we are displaying a new image
+    // i.e., avoid re-init when changing contrast/bias
+    if( this.display.image ){
+	if( this.lastimage === this.display.image ){
+	    return;
+	}
+	this.lastimage = this.display.image;
+    }
+    // generate the web page
+    opts = JS9.globalOpts.infoBox;
+    obj = JS9.Info.opts.infoObj;
+    infoHTML = '<table name="info" class="js9InfoTable">';
+    for(i=0; i<opts.length; i++){
+	key = opts[i];
+	// aesthetic condideration: skip wcs display if we have no wcs
+	if( key.match(/^wcs/)
+	    && this.display.image && !(this.display.image.raw.wcs>0) ){
+	    continue;
+	}
+	// add html for this line of the display
+	if( key in obj ){
+	    infoHTML += obj[key];
+	}
+    }
+    infoHTML += '</table>';
+    // reset previous
+    if( this.infoConjq ){
+	this.infoConjq.html("");
+    }
+    // set width and height on div
+    this.width = this.divjq.attr("data-width");
+    if( !this.width  ){
+	this.width  = JS9.Info.WIDTH;
+    }
+    this.divjq.css("width", this.width);
+    this.width = parseInt(this.divjq.css("width"), 10);
+    this.height = this.divjq.attr("data-height");
+    if( !this.height ){
+	this.height = JS9.Info.HEIGHT;
+    }
+    this.divjq.css("height", this.height);
+    this.height = parseInt(this.divjq.css("height"), 10);
+    // add container to the high-level div
+    this.infoConjq = $("<div>")
+	.addClass("JS9Container")
+	.append(infoHTML)
+	.appendTo(this.divjq);
+    // save the jquery element for later processing
+    this.jq = this.infoConjq.find("[name='info']");
+};
+
+// display a message on the image canvas or info plugin
+// call with display as context
+JS9.Info.display = function(type, message, target){
+    var tobj, split, area, tokens, rexp, s, color, info, key, el, jel;
+    var disp = this;
+    // backward compatibility -- allow context to be Image
+    if( this.display ){
+	disp = this.display;
+    }
+    // if image is context
+    if( disp.pluginInstances ){
+	info = disp.pluginInstances.JS9Info;
+    }
+    // if specific target was specified use that
+    if( target ){
+	tobj = target;
+    } else {
+	// if info plugin is active, use that
+	if( info && (info.status === "active") ){
+	    tobj = info;
+	} else {
+	    // image context
+	    tobj = disp;
+	}
+    }
+    // handle progress specially
+    if( type === "progress" ){
+	if( tobj === info ){
+	    el = info.jq;
+	} else {
+	    el = tobj.divjq;
+	}
+	if( el.length > 0 ){
+	    el = el.find("[name='progress']");
+	    switch(typeof message){
+	    case "string":
+	    case "boolean":
+		if( message ){
+		    if( message === "indeterminate" ){
+			el.removeAttr("value");
+		    }
+		    el.parent().css("display", "inline-block");
+		} else {
+		    el.parent().css("display", "none");
+		    el.attr("value", 0);
+		}
+		break;
+	    case "object":
+		if( message[1] ){
+		    el.attr("max", message[1]);
+		}
+		el.attr("value", message[0]);
+		break;
+	    }
+	}
+	return;
+    }
+    // plugin-based display: fill in html form
+    if( tobj === info ){
+	switch( typeof message ){
+	case "string":
+	    jel = info.jq.find("[name='"+type+"']");
+	    if( jel.length > 0 ){
+		jel.val(message);
+	    }
+	    break;
+	case "object":
+	    // process all key in the object
+	    for( key in message ){
+		if( message.hasOwnProperty(key) ){
+		    // set value, if possible
+		    jel = info.jq.find("[name='"+key+"']");
+		    if( jel.length > 0 ){
+			jel.val(message[key]);
+		    }
+		}
+	    }
+	    break;
+	}
+	// allow chaining
+	return disp;
+    }
+    // height params for text color assignment
+    tobj.infoheight = tobj.infoArea.height() + 4;
+    tobj.regheight = Math.max(tobj.infoheight * 2 + 10,
+			      tobj.infoheight + tobj.regionsArea.height() + 10);
+    // display-based message
+    switch(type){
+    case "regions":
+	area = tobj.regionsArea;
+	if( !disp.image || (disp.image.iy > tobj.regheight) ){
+	    color = JS9.textColorOpts.inimage;
+	} else {
+	    color = JS9.textColorOpts.regions;
+	}
+	split = ";";
+	break;
+    case "info":
+	area = tobj.infoArea;
+	if( !disp.image || (disp.image.iy > tobj.infoheight) ){
+	    color = JS9.textColorOpts.inimage;
+	} else {
+	    color = JS9.textColorOpts.info;
+	}
+	split = "";
+	break;
+    default:
+	area = tobj.infoArea;
+	if( !disp.image || (disp.image.iy > tobj.infoheight) ){
+	    color = JS9.textColorOpts.inimage;
+	} else {
+	    color = JS9.textColorOpts.info;
+	}
+	break;
+    }
+    // massage the message before display, if necessary
+    switch( typeof message ){
+    case "string":
+	s = message;
+	break;
+    case "object":
+	s = message.vstr;
+	break;
+    }
+    if( split !== "" ){
+	tokens = s.split(split);
+	if( tokens.length > 2 ){
+	    rexp = new RegExp(split, "g");
+	    s = s.replace(rexp, "<br>");
+	}
+    }
+    // display the message
+    area.css("color", color).html(s);
+    // allow chaining
+    return disp;
+};
+JS9.Display.prototype.displayMessage = JS9.Info.display;
+// backwards compatibility
+JS9.Image.prototype.displayMessage = JS9.Info.display;
+
+// clear an info message
+JS9.Info.clear = function(which){
+    var disp = this;
+    // backward compatibility -- allow context to be Image
+    if( this.display ){
+	disp = this.display;
+    }
+    if( which ){
+	disp.displayMessage(which, "");
+    } else {
+	disp.displayMessage("info", "");
+	disp.displayMessage("regions", "");
+	disp.displayMessage("progress", false);
+    }
+    // allow chaining
+    return disp;
+};
+JS9.Display.prototype.clearMessage = JS9.Info.clear;
+// backwards compatibility
+JS9.Image.prototype.clearMessage = JS9.Info.clear;
+
+// when a plugin window is brought up:
+// clear the display window, savel valpos and set to true
+JS9.Info.pluginDisplay = function(im){
+    var disp;
+    if( im && im.display ){
+	disp = im.display;
+	disp.displayMessage("info", "", disp);
+	disp.displayMessage("regions", "", disp);
+	disp.displayMessage("progress", false, disp);
+	if( im.tmp ){
+	    im.tmp.info_ovalpos = im.params.valpos;
+	}
+	im.params.valpos = true;
+    }
+};
+
+// when a plugin window is closed, reset valpos to previous
+JS9.Info.pluginClose = function(im){
+    if( im && im.display ){
+	if( im.tmp && (im.tmp.info_ovalpos !== undefined) ){
+	    im.params.valpos = im.tmp.info_ovalpos;
+	}
+    }
+};
+
+// having added the prototype displayMessage, we can define a public routine
+JS9.mkPublic("DisplayMessage", function(type, message, target){
+    var got;
+    var obj = JS9.parsePublicArgs(arguments);
+    var display = JS9.lookupDisplay(obj.display);
+    if( !display ){
+	JS9.error("invalid display for display message");
+    }
+    type = obj.argv[0];
+    message = obj.argv[1];
+    target = obj.argv[2];
+    got = display.displayMessage(type, message, target);
+    if( got === display ){
+	got = "OK";
+    }
+    return got;
+});
+
+// add this plugin into JS9
+JS9.RegisterPlugin("JS9", "Info", JS9.Info.init,
+		   {menuItem: "InfoBox",
+		    onplugindisplay: JS9.Info.pluginDisplay,
+		    onpluginclose: JS9.Info.pluginClose,
+		    onimagedisplay: JS9.Info.init,
+		    winTitle: "Info",
+		    winResize: true,
+		    winDims: [JS9.Info.WIDTH, JS9.Info.HEIGHT]});
+/*
+ * keyboard module (September 21, 2016)
+ */
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Keyboard = {};
+JS9.Keyboard.CLASS = "JS9";         // class of plugin
+JS9.Keyboard.NAME = "Keyboard";     // name of this plugin
+JS9.Keyboard.WIDTH =  450;	    // width of light window
+JS9.Keyboard.HEIGHT = 420;	    // height of light window
+JS9.Keyboard.BASE = JS9.Keyboard.CLASS + JS9.Keyboard.NAME;
+
+JS9.Keyboard.actionHTML="<div class='JS9KeyboardText'><button class='JS9Button JS9KeyboardButton' type='button' value='%s'>%s</button></div><div class='JS9KeyboardAction'>%s</div>";
+
+// get an id based on the action
+JS9.Keyboard.actionid = function(cname, aname){
+    return (cname + "_" + aname).replace(/[^A-Za-z0-9_]/g, "_");
+};
+
+// add to the action list
+JS9.Keyboard.addAction = function(container, cname, aname){
+    var that = this;
+    var s, id, divjq;
+    id = JS9.Keyboard.actionid(cname, aname);
+    // create the html for this action
+    s = sprintf(JS9.Keyboard.actionHTML, aname, cname, aname);
+    // add action html to the action container
+    divjq = $("<div class='JS9KeyboardItem'>")
+	.attr("id", id)
+	.html(s)
+	.appendTo(container);
+    divjq.find('.JS9KeyboardButton').on("click", function(evt){
+	var action = this.value;
+	var im = that.display.image;
+	if( im && action && JS9.Keyboard.Actions[action] ){
+	    JS9.Keyboard.Actions[action](im, im.ipos, evt);
+	}
+    });
+    return divjq;
+};
+
+// ---------------------------------------------------------------------
+//
+// Keyboard.Actions: callbacks when on key press
+//
+// the keyboardActions array is in JS9.globalOpts determine
+// the initial mapping of keyboard configuration to callback, e.g.:
+//
+//  JS9.globalOpts.keyboardActions = {'?': 'copy valpos to clipboard',
+//                                     '/': 'copy wcs coords to clipboard',
+//					...
+//                                    };
+//
+// You can add your own to the Keyboard.Actions object and use them in the
+// globalOpts.keyboardActions object
+//
+// ---------------------------------------------------------------------
+JS9.Keyboard.Actions = {};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["copy wcs position to clipboard"] = function(im, ipos, evt){
+    var s;
+    // sanity check
+    if( !im || !im.raw.wcs ){
+	return;
+    }
+    // get wcs coords of current position
+    s = JS9.pix2wcs(im.raw.wcs, ipos.x, ipos.y).trim();
+    // copy to clipboard
+    JS9.CopyToClipboard(s);
+    return s;
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["copy physical position to clipboard"] = function(im, ipos, evt){
+    var phys, s;
+    // sanity check
+    if( !im ){
+	return;
+    }
+    // get physical coords from image coords
+    phys = im.imageToLogicalPos(ipos);
+    s = sprintf("%f %f", phys.x, phys.y);
+    // copy to clipboard
+    JS9.CopyToClipboard(s);
+    return s;
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["copy pixel value to clipboard"] = function(im, ipos, evt){
+    var s, val, prec;
+    // sanity check
+    if( !im ){
+	return;
+    }
+    // value at current position
+    val = im.raw.data[Math.floor(ipos.y-0.5) * im.raw.width +
+		      Math.floor(ipos.x-0.5)];
+    prec = JS9.floatPrecision(im.params.scalemin, im.params.scalemax);
+    s = JS9.floatFormattedString(val, prec, 3);
+    // copy to clipboard
+    JS9.CopyToClipboard(s);
+    return s;
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["copy value and position to clipboard"] = function(im, ipos, evt){
+    var s;
+    // sanity check
+    if( !im ){
+	return;
+    }
+    // get current valpos and reformat
+    s = im.updateValpos(im.ipos, false).vstr.replace(/&nbsp;/g, " ");
+    // copy to clipboard
+    JS9.CopyToClipboard(s);
+    return s;
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["toggle selected region: source/background"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    return JS9.Keyboard.toggleregion(im, "source", "background");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["toggle selected region: include/exclude"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    return JS9.Keyboard.toggleregion(im, "include", "exclude");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["tag selected region as 'source'"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    return JS9.Keyboard.editregion(im, "source", "background");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["tag selected region as 'background'"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    return JS9.Keyboard.editregion(im, "background", "source");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["tag selected region as 'include'"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    return JS9.Keyboard.editregion(im, "include", "exclude");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["tag selected region as 'exclude'"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    return JS9.Keyboard.editregion(im, "exclude", "include");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["toggle full screen mode"] = function(im, ipos, evt){
+    var display = evt.data;
+    if( (display.width  === display.width0)  &&
+	(display.height === display.height0) ){
+	display.resize("full", {center: true});
+    } else {
+	display.resize("reset");
+    }
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["reset zoom"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.setZoom("1");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["zoom in"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.setZoom("*2");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["zoom out"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.setZoom("/2");
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["display next image"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.display.nextImage(1);
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["display previous image"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.display.nextImage(-1);
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["open a local FITS file"] = function(im, ipos, evt){
+    // nb: evt.data is always the js9 display (so no image needed here)
+    JS9.OpenFileMenu({display: evt.data});
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["save image as a FITS file"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.saveFITS();
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["save image as a PNG file"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.savePNG();
+};
+
+// eslint-disable-next-line no-unused-vars
+JS9.Keyboard.Actions["save regions as a text file"] = function(im, ipos, evt){
+    // sanity check
+    if( !im ){
+	return;
+    }
+    im.saveRegions();
+};
+
+// get action associated with the current keyboard
+JS9.Keyboard.getAction = function(im, evt){
+    var action;
+    var d = evt.data;
+    var s = JS9.eventToCharStr(evt);
+    // look for an action associated with this key
+    if( s ){
+	action = d.keyboardActions[s];
+    }
+    return action;
+};
+
+// execute the keyboard action routine
+JS9.Keyboard.action = function(im, ipos, evt, action){
+    action = action || JS9.Keyboard.getAction(im, evt);
+    // call the keyboard action
+    if( action && JS9.Keyboard.Actions[action] ){
+	JS9.Keyboard.Actions[action](im, ipos, evt);
+    }
+};
+
+JS9.Keyboard.editregion= function(im, xnew, xold){
+    var i, j, s, tags;
+    // get selected region
+    s = im.getShapes("regions", "selected");
+    if( s.length ){
+	for(i=0; i<s.length; i++){
+	    tags = s[i].tags;
+	    for(j=0; j<tags.length; j++){
+		if( tags[j] === xnew ){
+		    // already have this tag
+		    xnew = "";
+		    break;
+		}
+		if( tags[j] === xold ){
+		    // switch with "opposite" tag
+		    tags[j] = xnew;
+		    xnew = "";
+		    break;
+		}
+	    }
+	    // add new tag?
+	    if( xnew ){
+		tags.push(xnew);
+	    }
+	}
+	im.changeShapes("regions", "selected", {tags: tags});
+    }
+};
+
+JS9.Keyboard.toggleregion = function(im, x1, x2){
+    var i, j, s, tags, xnew;
+    // get selected region
+    s = im.getShapes("regions", "selected");
+    if( s.length ){
+	for(i=0; i<s.length; i++){
+	    tags = s[i].tags;
+	    xnew = "";
+	    for(j=0; j<tags.length; j++){
+		// switch tags
+		if( tags[j] === x1 ){
+		    tags[j] = x2;
+		    xnew = x2;
+		    break;
+		} else if( tags[j] === x2 ){
+		    tags[j] = x1;
+		    xnew = x1;
+		    break;
+		}
+	    }
+	}
+	if( xnew ){
+	    im.changeShapes("regions", "selected", {tags: tags});
+	}
+    }
+};
+
+// constructor: add HTML elements to the plugin
+JS9.Keyboard.init = function(){
+    var s, key;
+    // on entry, these elements have already been defined:
+    // this.div:      the DOM element representing the div for this plugin
+    // this.divjq:    the jquery object representing the div for this plugin
+    // this.id:       the id ofthe div (or the plugin name as a default)
+    // this.display:  the display object associated with this plugin
+    // this.dispMode: display mode (for internal use)
+    //
+    // create container to hold action container and header
+    // clean main container
+    this.divjq.html("");
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
+    // main container
+    this.keyboardContainer = $("<div>")
+	.addClass(JS9.Keyboard.BASE + "Container")
+	.attr("id", this.id + "KeyboardContainer")
+	.appendTo(this.divjq);
+    s = sprintf("<div class='%s'><b>Keys and their actions (or click the buttons):</b></div><p>", JS9.Keyboard.BASE + "Header");
+    this.keyboardHeadContainer = $("<div>")
+	.addClass(JS9.Keyboard.BASE + "Container")
+	.attr("id", this.id + "KeyboardHeadContainer")
+        .html(s)
+	.appendTo(this.keyboardContainer);
+    // container to hold keyboard actions
+    this.keyboardActionContainer = $("<div>")
+	.addClass(JS9.Keyboard.BASE + "ActionContainer")
+	.attr("id", this.id + "ActionContainer")
+        .html("")
+	.appendTo(this.keyboardContainer);
+    // add actions
+    for(key in this.display.keyboardActions ){
+	if( this.display.keyboardActions.hasOwnProperty(key) ){
+	    s = this.display.keyboardActions[key];
+	    JS9.Keyboard.addAction.call(this, this.keyboardActionContainer,
+					key, s);
+	}
+    }
+ };
+
+JS9.RegisterPlugin(JS9.Keyboard.CLASS, JS9.Keyboard.NAME,
+		   JS9.Keyboard.init,
+		   {menuItem: "Keyboard Actions",
+		    onplugindisplay: JS9.Keyboard.init,
+		    help: "help/keyboard.html",
+		    winTitle: "Keyboard Actions",
+		    winResize: true,
+		    winDims: [JS9.Keyboard.WIDTH,JS9.Keyboard.HEIGHT]});
+/*
+ * shape layer module (October 7, 2016)
+ */
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Layers = {};
+JS9.Layers.CLASS = "JS9";	// class of plugins (1st part of div class)
+JS9.Layers.NAME = "Layers";     // name of this plugin (2nd part of div class)
+JS9.Layers.WIDTH =  460;	// width of light window
+JS9.Layers.HEIGHT = 250;	// height of light window
+JS9.Layers.BASE = JS9.Layers.CLASS + JS9.Layers.NAME;  // CSS base class name
+
+JS9.Layers.headerHTML='Shape layers can be hidden or made visible below. The topmost visible layer in the stack is <b>active</b>: it responds to mouse and touch events. Move a layer to the top of the stack to make it active.';
+
+JS9.Layers.layerHTML="<span style='float: left'>$visible&nbsp;&nbsp;$save&nbsp;&nbsp;</span>&nbsp;&nbsp; <span class='JS9LayersSpan'>$layer&nbsp;&nbsp</span>";
+
+JS9.Layers.nolayersHTML='<p><span class="JS9NoLayers">[Layers will appear here as they are created]</span>';
+
+JS9.Layers.visibleHTML='<input class="JS9LayersVisibleCheck" type="checkbox" id="visible" name="visible" value="visible" onclick="javascript:JS9.Layers.xvisible(\'%s\', \'%s\', \'%s\', this)">visible';
+
+JS9.Layers.saveBothHTML='<select class="JS9LayersSaveBothSelect" onfocus="this.selectedIndex=0;" onchange="JS9.Layers.xsave(\'%s\', \'%s\', \'%s\', this)"><option selected disabled>save as ...</option><option value="catalog">catalog</option><option value="regions">regions</option></select>';
+
+JS9.Layers.saveRegionsHTML='<input class="JS9LayersSave" type="button" value="save regions" onclick="javascript:JS9.Layers.xsaveRegions(\'%s\', \'%s\', \'%s\', this)">';
+
+JS9.Layers.layerNameHTML='<b>%s</b>';
+
+// get an id based on the file image id and layer
+JS9.Layers.imid = function(im, layer){
+    var id = im.display.id + "_" + im.id + "_" + layer + "_";
+    return id.replace(/[^A-Za-z0-9_]/g, "_") + "Layer";
+};
+
+// get a class unique between displays
+JS9.Layers.dispclass = function(im){
+    var id = JS9.Layers.BASE + "_" + im.display.id;
+    return id.replace(/[^A-Za-z0-9_]/g, "_");
+};
+
+// change the active image
+JS9.Layers.activeLayer = function(im, pinst){
+    var i, s, id, dcls, order;
+    if( im ){
+	order = pinst.layersLayerContainer.sortable("toArray");
+	if( (order.length === 1) && !order[0] ){
+	    return;
+	}
+	for(i=0; i<order.length; i++){
+	    order[i] = $("#" + order[i]).attr("layer");
+	}
+	s = im.activeShapeLayer(order);
+	id = JS9.Layers.imid(im, s);
+	dcls = JS9.Layers.dispclass(im) + "_Layer";
+	$("." + dcls)
+	    .removeClass(JS9.Layers.BASE + "LayerActive")
+	    .addClass(JS9.Layers.BASE + "LayerInactive");
+	$("#" + id)
+	    .removeClass(JS9.Layers.BASE + "LayerInactive")
+	    .addClass(JS9.Layers.BASE + "LayerActive");
+    }
+};
+
+// make shape layer visible/invisible
+JS9.Layers.xvisible = function(did, id, layer, target){
+    var pinst, mode;
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	if( target.checked ){
+	    mode = "show";
+	} else {
+	    mode = "hide";
+	}
+	// change visibility
+	im.showShapeLayer(layer, mode);
+	// might have changed the active layer
+	pinst = im.display.pluginInstances[JS9.Layers.BASE];
+	// set active layer
+	JS9.Layers.activeLayer(im, pinst, true);
+    }
+};
+
+// save layer (catalog or regions)
+// eslint-disable-next-line no-unused-vars
+JS9.Layers.xsave = function(did, id, layer, target){
+    var im = JS9.lookupImage(id, did);
+    var save = target.options[target.selectedIndex].value;
+    if( im ){
+	if( save === "catalog" ){
+	    im.saveCatalog(null, layer);
+	} else if( save === "regions" ){
+	    im.saveRegions(null, null, layer);
+	}
+    }
+};
+
+// save regions layer
+// eslint-disable-next-line no-unused-vars
+JS9.Layers.xsaveRegions = function(did, id, layer, target){
+    var im = JS9.lookupImage(id, did);
+    if( im ){
+	if( layer === "regions" ){
+	    im.saveRegions();
+	} else {
+	    im.saveRegions(null, null, layer);
+	}
+    }
+};
+
+// add a layer to the list
+JS9.Layers.addLayer = function(im, layer){
+    var l, s, id, divjq, zindex, added, dcls, imid, dispid;
+    var cls = JS9.Layers.BASE + "Layer";
+    var opts = [];
+    // sanity checks
+    if( !im || !layer || !im.layers[layer] ||
+	(im.layers[layer].dlayer.dtype !== "main") ){
+	return;
+    }
+    // first time through, clear html
+    if( !this. nlayer ){
+	this.layersLayerContainer.html("");
+    }
+    // convenience variables
+    imid = im.id;
+    dispid = im.display.id;
+    // get current z-index
+    zindex = parseInt(im.display.layers[layer].divjq.css("z-index"), 10);
+    // get unique id for this layer
+    id = JS9.Layers.imid(im, layer);
+    // get class for this layer 
+    dcls = JS9.Layers.dispclass(im) + "_Layer";
+    // value to pass to the macro expander
+    opts.push({name: "imid", value: imid});
+    opts.push({name: "visible", value: sprintf(JS9.Layers.visibleHTML, 
+					       dispid, imid, layer)});
+    if( im.layers[layer].catalog ){
+	opts.push({name: "save", value: sprintf(JS9.Layers.saveBothHTML,
+						dispid, imid, layer)});
+    } else {
+	opts.push({name: "save", value: sprintf(JS9.Layers.saveRegionsHTML,
+						dispid, imid, layer)});
+    }
+    if( JS9.DEBUG > 1 ){
+	l = sprintf("%s layer [zindex: %s]", layer, zindex);
+    } else {
+	l = sprintf("%s layer", layer);
+    }
+    opts.push({name: "layer", value: sprintf(JS9.Layers.layerNameHTML, l)});
+    // create the html for this layer
+    s = JS9.Image.prototype.expandMacro.call(im, JS9.Layers.layerHTML, opts);
+    // add layer html to the layer container
+    divjq = $("<div>")
+	.addClass(cls)
+	.addClass(dcls)
+	.attr("id", id)
+	.attr("layer", layer)
+	.prop("imid", imid)
+        .html(s);
+    if( !this.nlayer ){
+	divjq.appendTo(this.layersLayerContainer);
+    } else {
+	this.layersLayerContainer.find("." + cls).each(function(idx, item){
+		var tlayer, tzindex;
+		var jqitem = $(item);
+		if( !added ){
+		    tlayer = jqitem.attr("layer");
+		    if( tlayer ){
+			tzindex = parseInt(im.display.layers[tlayer].divjq
+					   .css("z-index"), 10);
+			if( Math.abs(zindex) > Math.abs(tzindex) ){
+			    divjq.insertBefore(jqitem);
+			    added = true;
+			}
+		    }
+		}
+	    });
+	    if( !added ){
+		divjq.appendTo(this.layersLayerContainer);
+	    }
+    }
+    // set of unset visibility buton
+    divjq.find(".JS9LayersVisibleCheck").prop("checked", !!im.layers[layer].show);
+    // another layer was added
+    this.nlayer++;
+};
+
+// init when a different image is displayed
+JS9.Layers.display = function(){
+    if( this.lastimage !== this.display.image ){
+	JS9.Layers.init.call(this);
+    }
+};
+
+// clear when an image closes
+JS9.Layers.close = function(){
+    // ensure that plugin display is reset
+    JS9.Layers.init.call(this, {mode: "clear"});
+};
+
+// constructor: add HTML elements to the plugin
+JS9.Layers.init = function(opts){
+    var key, im;
+    var that = this;
+    // on entry, these elements have already been defined:
+    // this.div:      the DOM element representing the div for this plugin
+    // this.divjq:    the jquery object representing the div for this plugin
+    // this.id:       the id ofthe div (or the plugin name as a default)
+    // this.display:  the display object associated with this plugin
+    // this.dispMode: display mode (for internal use)
+    //
+    // opts is optional
+    opts = opts || {};
+    // create container to hold layer container and header
+    // clean main container
+    this.divjq.html("");
+    // no layers yet
+    this.nlayer = 0;
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
+    // main container
+    this.layersContainer = $("<div>")
+	.addClass(JS9.Layers.BASE + "Container")
+	.attr("id", this.id + "LayersContainer")
+        .css("overflow", "auto")
+	.appendTo(this.divjq);
+    // header
+    this.layersHeader = $("<div>")
+	.addClass(JS9.Layers.BASE + "Header")
+	.attr("id", this.display.id + "Header")
+	.html(JS9.Layers.headerHTML)
+	.appendTo(this.layersContainer);
+    // container to hold layers
+    this.layersLayerContainer = $("<div>")
+	.addClass(JS9.Layers.BASE + "LayerContainer")
+	.attr("id", this.id + "LayersLayerContainer")
+        .html(JS9.Layers.nolayersHTML)
+	.appendTo(this.layersContainer);
+    // done if we are only clearing
+    if( opts.mode === "clear" ){
+	return;
+    }
+    // add current shape layers
+    if( this.display.image ){
+	im = this.display.image;
+	for( key in im.layers ){
+	    if( im.layers.hasOwnProperty(key) ){
+		JS9.Layers.addLayer.call(this, im, key);
+	    }
+	}
+	this.lastimage = im;
+    }
+    // the layers within the layer container will be sortable
+    // the top one responds to events
+    this.layersLayerContainer.sortable({
+	// eslint-disable-next-line no-unused-vars
+	start: function(event, ui) {
+	    return;
+	},
+	// eslint-disable-next-line no-unused-vars
+	stop: function(event, ui) {
+	    JS9.Layers.activeLayer(im, that);
+	    return;
+	}
+    });
+    // set initial active layer
+    JS9.Layers.activeLayer(im, this);
+};
+
+// add this plugin into JS9
+JS9.RegisterPlugin(JS9.Layers.CLASS, JS9.Layers.NAME, JS9.Layers.init,
+		   {menuItem: "Shape Layers",
+		    onplugindisplay: JS9.Layers.init,
+		    onshapelayercreate: JS9.Layers.init,
+		    onshapelayershow: JS9.Layers.init,
+		    onshapelayeractive: JS9.Layers.init,
+		    onshapelayerhide: JS9.Layers.init,
+		    onimageload: JS9.Layers.init,
+		    onimagedisplay: JS9.Layers.display,
+		    onimageclose: JS9.Layers.close,
+		    help: "help/layers.html",
+		    winTitle: "Shape Layers",
+		    winResize: true,
+		    winDims: [JS9.Layers.WIDTH, JS9.Layers.HEIGHT]});
+// ---------------------------------------------------------------------
+// Magnifier plugin
+// ---------------------------------------------------------------------
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9 */
+
+// create our namespace, and specify some meta-information and params
+JS9.Magnifier = {};
+JS9.Magnifier.CLASS = "JS9";
+JS9.Magnifier.NAME = "Magnifier";
+JS9.Magnifier.WIDTH =  JS9.WIDTH/2;	// width of light window
+JS9.Magnifier.HEIGHT = JS9.HEIGHT/2;	// height of light window
+JS9.Magnifier.SWIDTH =  250;		// width of div
+JS9.Magnifier.SHEIGHT = 250;		// height of div
+
+// defaults for magnifier
+JS9.Magnifier.opts = {
+    // override fabric defaults
+    originX: "left",
+    originY: "top",
+    hasControls: false,
+    hasRotatingPoint: false,
+    hasBorders: false,
+    selectable: false,
+    // initial magnifier zoom
+    zoom: 4,
+    // canvas options
+    canvas: {
+	selection: false
+    },
+    // magnifier box colors
+    tagcolors: {
+	defcolor: "#00FF00"
+    }
+};
+
+// call a JS9 routine from a button in the magnifier plugin toolbar
+// the plugin instantiation saves the display id in the toolbar div
+JS9.Magnifier.bcall = function(which, cmd, arg1){
+    var dispid, im;
+    // the button plugintoolbar div has data containing the id of the display
+    dispid = $(which).closest("div[class^=JS9PluginToolbar]").data("displayid");
+    if( dispid ){
+	im = JS9.getImage(dispid);
+    } else {
+	JS9.error("can't find display for cmd: "+cmd);
+    }
+    if( !im ){
+	JS9.error("can't find image for cmd: "+cmd);
+    }
+    switch(cmd){
+    case "zoomMagnifier":
+	if( arguments.length < 3 ){
+	    JS9.error("missing argument(s) for cmd: "+cmd);
+	}
+	try{
+	    JS9.Magnifier.zoom(im, arg1);
+	} catch(e){
+	    JS9.error("error calling zoomMagnifier()", e);
+	}
+	break;
+    default:
+        break;
+    }
+};
+
+// html used by the magnifier plugin
+JS9.Magnifier.HTML =
+"<span>" +
+"<button type='button' class='JS9Button' onClick='JS9.Magnifier.bcall(this, \"zoomMagnifier\", \"x2\"); return false'>x2</button>" +
+"<button type='button' class='JS9Button' onClick='JS9.Magnifier.bcall(this, \"zoomMagnifier\", \"/2\"); return false'>/2</button>" +
+"<button type='button' class='JS9Button' onClick='JS9.Magnifier.bcall(this, \"zoomMagnifier\", \""+JS9.Magnifier.opts.zoom+"\"); return false'>"+JS9.Magnifier.opts.zoom+"</button>" +
+"</span>";
+
+// JS9 Magnifier constructor
+JS9.Magnifier.init = function(width, height){
+    // set width and height on div
+    this.width = this.divjq.attr("data-width");
+    if( !this.width  ){
+	this.width = width || JS9.Magnifier.WIDTH;
+    }
+    this.divjq.css("width", this.width);
+    this.width = parseInt(this.divjq.css("width"), 10);
+    this.height = this.divjq.attr("data-height");
+    if( !this.height ){
+	this.height = height || JS9.Magnifier.HEIGHT;
+    }
+    this.divjq.css("height", this.height);
+    this.height = parseInt(this.divjq.css("height"), 10);
+    // create DOM canvas element
+    this.canvas = document.createElement("canvas");
+    // jquery version for event handling and DOM manipulation
+    this.canvasjq = $(this.canvas);
+    // set class
+    this.canvasjq.addClass("JS9Magnifier");
+    // required so graphical layers will be on top:
+    this.canvasjq.css("z-index", JS9.ZINDEX);
+    // how do we allow users to set the size of the canvas??
+    // it doesn't go into the CSS and we have no canvas on the Web page ...
+    this.canvasjq.attr("width", this.width);
+    this.canvasjq.attr("height", this.height);
+    // drawing context
+    this.context = this.canvas.getContext("2d");
+    // turn off anti-aliasing
+    if( !JS9.ANTIALIAS ){
+	this.context.imageSmoothingEnabled = false;
+	this.context.mozImageSmoothingEnabled = false;
+	this.context.webkitImageSmoothingEnabled = false;
+	this.context.msImageSmoothingEnabled = false;
+    }
+    // add container with canvas to the high-level div
+    this.containerjq = $("<div>")
+	.addClass("JS9Container")
+	.append(this.canvasjq)
+	.appendTo(this.divjq);
+    // add magnifier graphics layer to the display
+    // the magnifier will be appended to the div of the plugin
+    this.display.newShapeLayer("magnifier", JS9.Magnifier.opts, this.divjq);
+};
+
+// display the magnified image on the magnifier canvas
+JS9.Magnifier.display = function(im, ipos){
+    var pos, tval, magDisp, zoom;
+    var canvas, sx, sy, sw, sh, dx, dy, dw, dh;
+    // sanity check
+    // only display if we have a magnifier present
+    if(!im || !im.display.pluginInstances.JS9Magnifier ||
+       (im.display.pluginInstances.JS9Magnifier.status !== "active")){
+	return;
+    }
+    // don't display if a mouse button is pressed while moving, or
+    // if two or more touch buttons are pressed while moving
+    if( (im.clickState > 0) || (im.clickState < -1) ){
+	return;
+    }
+    // image init: add magnifier object to image, if necessary
+    if( !im.magnifier ){
+	im.magnifier = {zoom: JS9.Magnifier.opts.zoom, posx: 0, posy: 0};
+    }
+    magDisp = im.display.pluginInstances.JS9Magnifier;
+    canvas = im.display.canvas;
+    zoom = im.magnifier.zoom;
+    sw = Math.floor(magDisp.width / zoom);
+    sh = Math.floor(magDisp.height / zoom);
+    if( ipos ){
+	pos = im.imageToDisplayPos(ipos);
+	sx = pos.x - (sw/2);
+	sy = pos.y - (sh/2);
+	im.magnifier.posx = sx;
+	im.magnifier.posy = sy;
+    } else {
+	sx = im.magnifier.posx;
+	sy = im.magnifier.posy;
+    }
+    // default destination parameters
+    dx = 0;
+    dy = 0;
+    dw = magDisp.canvas.width;
+    dh = magDisp.canvas.height;
+    // adjust for boundaries
+    if( sx < 0 ){
+	sw += sx;
+	dx -= (sx * zoom);
+	dw += (sx * zoom);
+	sx = 0;
+    }
+    tval = (sx + sw) - canvas.width;
+    if( tval > 0  ){
+	sw -= tval;
+	dw = sw * zoom;
+    }
+    if( sy < 0 ){
+	sh += sy;
+	dy -= (sy * zoom);
+	dh += (sy * zoom);
+	sy = 0;
+    }
+    tval = sy + sh- canvas.height;
+    if( tval > 0 ){
+	sh -= tval;
+	dh = sh * zoom;
+    }
+    // display magnifier image
+    magDisp.context.clear();
+    magDisp.context.drawImage(canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+    // stuff we only do once
+    if( !im.magnifier.boxid ){
+	// add the center point to the magnifier, if necessary
+	im.magnifier.boxid = im.addShapes("magnifier", "box");
+	// make background black, which looks better at the edge
+	$(magDisp.canvas).css("background-color", "black");
+    }
+    // center point size and position, based on zoom
+    if( im.magnifier.ozoom !== zoom ){
+	im.changeShapes("magnifier", im.magnifier.boxid,
+			{left: magDisp.width/2, top:  magDisp.height/2, 
+			 width: zoom, height: zoom});
+	im.magnifier.ozoom = im.magnifier.zoom;
+    }
+};
+
+// zoom the rectangle inside the magnifier (RGB) image
+// part of magnifier plugin
+JS9.Magnifier.zoom = function(im, zval){
+    var magnifier, ozoom, nzoom;
+    // sanity check
+    if( !im || !im.magnifier ){
+	return;
+    }
+    magnifier = im.magnifier;
+    // get old zoom
+    ozoom = magnifier.zoom;
+    // determine new zoom
+    switch(zval.charAt(0)){
+    case "x":
+    case "*":
+	nzoom = ozoom * parseFloat(zval.slice(1));
+	break;
+    case "/":
+	nzoom = ozoom / parseFloat(zval.slice(1));
+	break;
+    default:
+	nzoom = parseFloat(zval);
+	break;
+    }
+    // sanity check
+    if( !nzoom || (nzoom < 1) ){
+	nzoom = 1;
+    }
+    // save old value, set new value
+    magnifier.ozoom = magnifier.zoom;
+    magnifier.zoom = nzoom;
+    // redisplay
+    JS9.Magnifier.display(im);
+};
+
+// clear the magnifier
+JS9.Magnifier.clear = function(im){
+    var magnifier = im.display.pluginInstances.JS9Magnifier;
+    if( magnifier && (im === im.display.image) ){
+	magnifier.context.clear();
+	im.removeShapes("magnifier", "all");
+	im.magnifier.boxid = null;
+	im.magnifier.ozoom = 0;
+	// restore original background color
+	$(magnifier.canvas).css("background-color", "#E9E9E9");
+    }
+    return im;
+};
+
+// add this plugin into JS9
+JS9.RegisterPlugin(JS9.Magnifier.CLASS, JS9.Magnifier.NAME, JS9.Magnifier.init,
+		   {menuItem: "Magnifier",
+		    toolbarSeparate: false,
+		    toolbarHTML: JS9.Magnifier.HTML,
+		    onplugindisplay: JS9.Magnifier.display,
+		    onmousemove: JS9.Magnifier.display,
+		    onimagedisplay: JS9.Magnifier.display,
+		    onimageclose: JS9.Magnifier.clear,
+		    onimageclear: JS9.Magnifier.clear,
+		    winTitle: "Magnifier",
+		    winDims: [JS9.Magnifier.WIDTH,  JS9.Magnifier.HEIGHT],
+		    divArgs: [JS9.Magnifier.SWIDTH,  JS9.Magnifier.SHEIGHT]});
+/*
+ * Multi-Extension FITS module (March 31, 2016)
+ */
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Mef = {};
+JS9.Mef.CLASS = "JS9";    // class of plugins (1st part of div class)
+JS9.Mef.NAME = "Mef";     // name of this plugin (2nd part of div class)
+JS9.Mef.WIDTH =  800;	  // width of light window
+JS9.Mef.HEIGHT = 240;	  // height of light window
+JS9.Mef.BASE = JS9.Mef.CLASS + JS9.Mef.NAME;  // CSS base class name
+
+// change global separate mode for this display
+JS9.Mef.xseparate = function(id, target){
+    var display = JS9.lookupDisplay(id);
+    var separate = target.checked;
+    // change separate mode for this instance
+    if( display ){
+	display.pluginInstances[JS9.Mef.BASE].separate = separate;
+    }
+};
+
+// get an MefExtension id based on the file image id
+JS9.Mef.imid = function(im, i, noext){
+    var id = im.display.id + "_" + im.id;
+    if( noext ){
+	id = id.replace(/\[[a-zA-Z0-9][a-zA-Z0-9_]*\]/g,"");
+    }
+    return id
+	.replace(/[^A-Za-z0-9_]/g, "_")
+	+ "_MefExtension_" + i;
+};
+
+// change the active extension
+JS9.Mef.activeExtension = function(im, i){
+    var clas, classbase;
+    if( im ){
+	classbase = im.display.id + "_" + JS9.Mef.BASE;
+	$("." + classbase + "Extension")
+	    .removeClass(JS9.Mef.BASE + "ExtensionActive")
+	    .addClass(JS9.Mef.BASE + "ExtensionInactive");
+	clas = JS9.Mef.imid(im, i, true);
+	$("." + clas )
+	    .removeClass(JS9.Mef.BASE + "ExtensionInactive")
+	    .addClass(JS9.Mef.BASE + "ExtensionActive");
+    }
+};
+
+// re-init when a different image is displayed
+JS9.Mef.display = function(){
+    if( this.lastimage !== this.display.image ){
+	JS9.Mef.init.call(this);
+    }
+};
+
+// clear when an image closes
+JS9.Mef.close = function(){
+    // ensure that plugin display is reset
+    JS9.Mef.init.call(this, {mode: "clear"});
+};
+
+// constructor: add HTML elements to the plugin
+JS9.Mef.init = function(opts){
+    var i, im, id, clas, obj, s, sid, div, htmlString, classbase;
+    var that = this;
+    var addExt = function(o, s, k){
+	var c, j;
+	var got = "";
+	var doit = true;
+	switch(o.type){
+	case "image":
+	    // look for 2D image
+	    if( o.naxes.length < 2 ){
+		doit = false;
+	    }
+	    break;
+	case "table":
+	case "ascii":
+	    // look for x and y columns
+	    for(j=0; j<o.cols.length; j++){
+		c = o.cols[j];
+		if( c.name === "X" || c.name === "x" ){
+		    got += "x";
+		}
+		if( c.name === "Y" || c.name === "y" ){
+		    got += "y";
+		}
+	    }
+	    if( got !== "xy" && got !== "yx" ){
+		doit = false;
+	    }
+	    break;
+	}
+	if( doit ){
+	    htmlString = "<pre>&nbsp;&nbsp;"+s+"</pre>";
+	} else {
+	    htmlString = "<pre>&nbsp;&nbsp;<span class='JS9MefStrike'><span>"+s+"</span></span></pre>";
+	}
+	id = JS9.Mef.imid(im, k);
+	clas = JS9.Mef.imid(im, k, true);
+	classbase = im.display.id + "_" + JS9.Mef.BASE;
+	div = $("<div>")
+	    .addClass(clas)
+	    .addClass(classbase  + "Extension")
+	    .addClass(JS9.Mef.BASE  + "Extension")
+	    .addClass(JS9.Mef.BASE + "ExtensionInactive")
+	    .attr("id", id)
+	    .html(htmlString)
+	    .appendTo(that.mefContainer);
+	if( doit ){
+	    div.on("mousedown touchstart", function(){
+		im.displayExtension(o.hdu, {separate: that.separate});
+		JS9.Mef.activeExtension(im, o.hdu);
+	    });
+	}
+    };
+    // on entry, these elements have already been defined:
+    // this.div:      the DOM element representing the div for this plugin
+    // this.divjq:    the jquery object representing the div for this plugin
+    // this.id:       the id ofthe div (or the plugin name as a default)
+    // this.display:  the display object associated with this plugin
+    // this.dispMode: display mode (for internal use)
+    //
+    // opts is optional
+    opts = opts || {};
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
+    // clean main container
+    this.divjq.html("");
+    // add mef container to main
+    this.mefContainer = $("<div>")
+	.addClass(JS9.Mef.BASE + "Container")
+	.attr("id", this.id + "MefContainer")
+	.appendTo(this.divjq);
+    // separate mode
+    if( this.separate === undefined ){
+	this.separate = false;
+    }
+    im  = this.display.image;
+    if( !im || (opts.mode === "clear") ){
+	this.mefContainer.html("<p><center>FITS HDU extensions will be displayed here.</center>");
+	return;
+    }
+    if( !im.hdus ){
+	this.mefContainer.html("<p><center>No FITS HDU extensions are present in this image.</center>");
+	return;
+    }
+    this.lastimage = im;
+    // reset main container
+    s = sprintf("<div class='%s'><span><b>Click on a FITS HDU extension to display it:</b></span>", JS9.Mef.BASE + "Header");
+    // add the checkbox for displaying each extension separately
+    sid = JS9.Mef.imid(im, "Separate");
+    s += sprintf('<span style="float: right"><input type="checkbox" id="%s" name="separate" value="separate" onclick="javascript:JS9.Mef.xseparate(\'%s\', this)"><b>Display each extension as a separate image</b></span></div>', sid, this.display.id);
+    this.mefContainer.html(s);
+    // add a formatted string for each extension
+    for(i=0; i<im.hdus.length; i++){
+	obj = im.hdus[i];
+	s = JS9.hdus2Str([obj]).trim();
+	addExt(obj, s, i);
+    }
+    $("#" + sid).prop("checked", this.separate);
+    // make the currently displayed extension active
+    if( im.raw.hdu.fits.extnum !== undefined ){
+	JS9.Mef.activeExtension(im, im.raw.hdu.fits.extnum);
+    }
+};
+
+// add this plugin into JS9
+JS9.RegisterPlugin(JS9.Mef.CLASS, JS9.Mef.NAME, JS9.Mef.init,
+		   {menuItem: "Extensions",
+		    help: "help/mef.html",
+		    onplugindisplay: JS9.Mef.init,
+		    onimageload: JS9.Mef.init,
+		    onimagedisplay: JS9.Mef.display,
+		    onimageclose: JS9.Mef.close,
+		    winTitle: "Multi-Extension FITS",
+		    winResize: true,
+		    winDims: [JS9.Mef.WIDTH, JS9.Mef.HEIGHT]});
+
+// ---------------------------------------------------------------------
+// JS9 menubar to manage menubar and its menus
+// ---------------------------------------------------------------------
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9, sprintf */
+
+// create our namespace, and specify some meta-information and params
+JS9.Menubar = {};
+JS9.Menubar.CLASS = "JS9";
+JS9.Menubar.NAME = "Menubar";
+JS9.Menubar.WIDTH = JS9.WIDTH || 512;	// width of Menubar
+JS9.Menubar.HEIGHT = "auto";		// height of Menubar
+
+// menu buttons in the menubar
+// NB: names must match actual menus, menu labels are arbitrary
+JS9.Menubar.buttonOptsArr = [{name: "file", label: "File"},
+			     {name: "view", label: "View"},
+			     {name: "zoom", label: "Zoom"},
+			     {name: "scale", label: "Scale"},
+			     {name: "color", label: "Color"},
+			     {name: "region", label: "Regions"},
+			     {name: "wcs", label: "WCS"},
+			     {name: "analysis", label: "Analysis"},
+			     {name: "help", label: "Help"}];
+
+// backwards compatibility, pre-1.10
+if( JS9.menuButtonOptsArr ){
+    JS9.Menubar.buttonOptsArr = JS9.menuButtonOptsArr;
+}
+
+JS9.Menubar.init = function(width, height){
+    var ii, jj, ss, tt, menu, html;
+    var that = this;
+    // set width and height on div
+    this.width = this.divjq.attr("data-width");
+    if( !this.width  ){
+	this.width = width || JS9.MENUWIDTH;
+    }
+    this.divjq.css("width", this.width);
+    this.width = parseInt(this.divjq.css("width"), 10);
+    this.height = this.divjq.attr("data-height");
+    this.buttonClass = this.divjq.attr("data-buttonClass") || "JS9Button" ;
+    this.containerClass = "JS9MenubarContainer";
+    // special handling of some known button classes
+    if( this.buttonClass.match(/-flat/) ){
+	this.containerClass += "-flat";
+    } else if( this.buttonClass.match(/-border/) ){
+	this.containerClass += "-border";
+    }
+    this.backgroundColor = this.divjq.attr("data-backgroundColor");
+    if( !this.height  ){
+	this.height = height || JS9.MENUHEIGHT;
+    }
+    this.divjq.css("height", this.height);
+    this.height = parseInt(this.divjq.css("height"), 10);
+    // generate html for this menubar
+    html = "<span id='JS9Menus_@@ID@@'>";
+    for(jj=0; jj<JS9.globalOpts.menuBar.length; jj++){
+	menu = JS9.globalOpts.menuBar[jj];
+	for(ii=0; ii<JS9.Menubar.buttonOptsArr.length; ii++){
+	    ss = JS9.Menubar.buttonOptsArr[ii].name;
+	    if( menu === ss ){
+		tt = JS9.Menubar.buttonOptsArr[ii].label;
+		// no help available for all-in-one configuration
+		if( JS9.allinone && (ss === "help") ){
+		    break;
+		}
+		if( ss[0] === "#" ){
+		    ss = ss.slice(1);
+		    html += "<button type='button' id='"+ss+"Menu@@ID@@' class='"+ this.buttonClass +"' disabled='disabled'>"+tt+" </button>";
+		} else {
+		    html += "<button type='button' id='"+ss+"Menu@@ID@@' class='"+ this.buttonClass +"'>"+tt+"</button>";
+		}
+		break;
+	    }
+	}
+    }
+    html += "<button type='button' id='hiddenRegionMenu@@ID@@'class='JS9Button' style='display:none'>R</button>";
+    html += "<button type='button' id='hiddenAnchorMenu@@ID@@'class='JS9Button' style='display:none'>R</button>";
+    html += "</span>";
+    // set the display for this menubar
+    this.display = JS9.lookupDisplay(this.id);
+    // link back the menubar in the display
+    this.display.menubar = this;
+    // define menubar
+    this.html = html.replace(/@@ID@@/g,this.id);
+    // add container to the high-level div
+    this.menuConjq = $("<div>")
+	.addClass(this.containerClass)
+	.attr("width", this.width)
+	.attr("height", this.height)
+	.html(this.html)
+	.appendTo(this.divjq);
+    // menubar background color
+    if( this.backgroundColor ){
+	this.menuConjq.css("background", this.backgroundColor);
+    }
+    $(function(){
+	function onhide() {
+	    var tdisp = that.display;
+	    if( JS9.bugs.hide_menu && tdisp.image ){
+		tdisp.image.displayImage("rgb");
+	    }
+	}
+	function getDisplays() {
+	    var i, s, disp;
+	    var arr = [];
+	    if( that.id.search(JS9.SUPERMENU) >= 0 ){
+		s = that.divjq.data("displays").split(",");
+		if( s[0] === "*" ){
+		    for(i=0; i<JS9.displays.length; i++){
+			arr.push(JS9.displays[i]);
+		    }
+		} else {
+		    for(i=0; i<s.length; i++){
+			disp = JS9.lookupDisplay(s[i]);
+			if( disp ){
+			    arr.push(disp);
+			}
+		    }
+		}
+	    }
+	    if( !arr.length ){
+		arr.push(that.display);
+	    }
+	    return arr;
+	}
+	// file: make button open the contextMenu
+	$("#fileMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#fileMenu" + that.id).contextMenu();
+	});
+	$.contextMenu({
+            selector: "#fileMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var i, im, name, imlen, s1;
+		var n = 0;
+		var items = {};
+		var tdisp = getDisplays()[0];
+		var tim = tdisp.image;
+		items.filetitle = {name: "Images:", disabled: true};
+		imlen = JS9.images.length;
+		for(i=0; i<imlen; i++){
+		    im = JS9.images[i];
+		    if( im.display === tdisp ){
+			name = im.id;
+			if( JS9.globalOpts.rgb.active ){
+			    if( im === JS9.globalOpts.rgb.rim){
+				name += " (red)";
+			    }
+			    if( im === JS9.globalOpts.rgb.gim){
+				name += " (green)";
+			    }
+			    if( im === JS9.globalOpts.rgb.bim){
+				name += " (blue)";
+			    }
+			}
+			items[name] = {name: name};
+			if( tdisp.image && (tdisp.image.id === im.id) ){
+			    items[name].icon = "sun";
+			}
+			n++;
+		    }
+		}
+		if( !n ){
+		    items.noimg = {
+			name: "[no images]",
+			events: {keyup: function(){return;}}
+		    };
+		}
+		items["sep" + n++] = "------";
+		items.open = {name: "open local file ..."};
+		items.archives = {name: " accessing data archives ..."};
+		if( !JS9.allinone ){
+		    items.archives.disabled = false;
+		} else {
+		    items.archives.disabled = true;
+		}
+		items.loadproxy = {name: "open link via proxy ..."};
+		if( !JS9.allinone			 &&
+		    JS9.globalOpts.helperType !== "none" &&
+		    JS9.globalOpts.workDir      	 &&
+		    JS9.globalOpts.loadProxy    	 ){
+		    items.loadproxy.disabled = false;
+		} else {
+		    items.loadproxy.disabled = true;
+		}
+		items.loadcors = {name: "open link via CORS ..."};
+		if( !window.hasOwnProperty("Jupyter") ){
+		    items.loadcors.disabled = false;
+		} else {
+		    items.loadcors.disabled = true;
+		}
+		items["sep" + n++] = "------";
+		items.print = {name: "print ..."};
+		items.header = {name: "display FITS header"};
+		items.hdus = {name: "display FITS HDUs"};
+		if( !tim || !tim.hdus ){
+		    items.hdus.disabled = true;
+		}
+		items.saveas = {
+		    name: "save image as ...",
+		    items: {saveastitle: {name: "choose output format:",
+					  disabled: true},
+			    savefits: {name: "FITS"},
+			    savejpeg: {name: "JPEG"},
+			    savepng: {name: "PNG"}
+			   }
+		};
+		items.moveto = {
+		    name: "move image to ...",
+		    items: {movetotitle: {name: "choose display:",
+					  disabled: true}}
+		};
+		if( tim ){
+		    items.moveto.disabled = false;
+		    for(i=0; i<JS9.displays.length; i++){
+			if( $("#"+JS9.displays[i].id).length > 0 &&
+			    tdisp !== JS9.displays[i]    	     ){
+			    s1 = "moveto_" + JS9.displays[i].id;
+			    items.moveto.items[s1] = {name: JS9.displays[i].id};
+			}
+		    }
+		    items.moveto.items.moveto_newdisp = { name: "a new display" };
+		} else {
+		    items.moveto.disabled = true;
+		}
+		items.free = {name: "free image memory"};
+		items.close = {name: "close image"};
+		items.removeproxy = {name: "remove proxy file from server"};
+		if( !tim || !tim.proxyFile ){
+		    items.removeproxy.disabled = true;
+		}
+		items["sep" + n++] = "------";
+		items.loadcatalog = {name: "load catalog ..."};
+		items.savecatalog = {name: "save active catalog"};
+		items["sep" + n++] = "------";
+		items.loadsession = {name: "load session ..."};
+		items.savesession = {name: "save session"};
+		items["sep" + n++] = "------";
+		items.lite = {name: "new JS9 light window"};
+		items.xnew = {name: "new JS9 separate window"};
+		if( window.isElectron ){
+		    items.xnew.disabled = true;
+		}
+		items["sep" + n++] = "------";
+		items.pageid = {name: "display page id"};
+		if( JS9.DEBUG > 2 ){
+		  items["sep" + n++] = "------";
+		  items.refresh = {name: "debug: refresh ..."};
+		}
+		return {
+                    callback: function(key){
+		    getDisplays().forEach(function(val){
+			var j, s, t, did, kid, unew, uwin;
+			var udisp = val;
+			var uim = udisp.image;
+			switch(key){
+			case "free":
+			    if( uim && uim.raw.hdu && uim.raw.hdu.fits ){
+				JS9.cleanupFITSFile(uim.raw.hdu.fits, true);
+			    }
+			    break;
+			case "close":
+			    if( uim ){
+				uim.closeImage();
+			    }
+			    break;
+			case "removeproxy":
+			    if( uim ){
+				uim.removeProxyFile();
+			    }
+			    break;
+			case "savesession":
+			    if( uim ){
+				uim.saveSession(uim.id + ".ses");
+			    }
+			    break;
+			case "loadsession":
+			    if( udisp ){
+				JS9.OpenSessionMenu({display: udisp});
+			    }
+			    break;
+			case "loadcatalog":
+			    if( udisp ){
+				JS9.OpenCatalogsMenu({display: udisp});
+			    }
+			    break;
+			case "savecatalog":
+			    uim.saveCatalog();
+			    break;
+			case "header":
+			    if( uim ){
+				if( uim.raw.header ){
+				    uim.displayAnalysis("text",
+						   JS9.raw2FITS(uim.raw, true),
+						   {title: "FITS Header: "+uim.id});
+				} else {
+				    JS9.error("no FITS header for " + uim.id);
+				}
+			    }
+			    break;
+			case "hdus":
+			    if( uim ){
+				if( uim.hdus ){
+				    uim.displayAnalysis("text",
+						   JS9.hdus2Str(uim.hdus),
+						   {title: "FITS HDUs: "+uim.id,
+						    winformat: "width=800px,height=200px,center=1,resize=1,scrolling=1"});
+				} else {
+				    JS9.error("no FITS header for " + uim.id);
+				}
+			    }
+			    break;
+			case "lite":
+			    JS9.LoadWindow(null, null, "light");
+			    break;
+			case "xnew":
+			    JS9.LoadWindow(null, null, "new");
+			    break;
+			case "pageid":
+			    s = sprintf("<center><p>pageid: %s</center>", JS9.helper.pageid || "none");
+			    t = "JS9 page id";
+			    // add display to title
+			    t += sprintf(JS9.IDFMT, udisp.id);
+			    JS9.lightWin("fileid" + JS9.uniqueID(),
+					 "inline", s, t,
+					 JS9.lightOpts[JS9.LIGHTWIN].lineWin);
+			    break;
+			case "open":
+			    JS9.OpenFileMenu({display: udisp});
+			    break;
+			case "loadcors":
+			    if( JS9.allinone ){
+				did = JS9.Image.prototype.displayAnalysis.call(
+				      null,
+				      "textline",
+				      JS9.allinone.loadCorsHTML,
+				      {title: "Open a shared CORS link"});
+			    } else {
+				did = JS9.Image.prototype.displayAnalysis.call(
+				      null,
+				      "textline",
+				      JS9.InstallDir(JS9.globalOpts.corsURL),
+				      {title: "Open a shared CORS link"});
+			    }
+			    // save display id
+			    $(did).data("dispid", udisp.id);
+			    break;
+			case "archives":
+			    JS9.DisplayHelp(JS9.InstallDir(JS9.globalOpts.archivesURL));
+			    break;
+			case "loadproxy":
+			    // load param url to run analysis task
+			    // param url is relative to js9 install dir
+			    did = JS9.Image.prototype.displayAnalysis.call(null,
+				     "textline",
+				     JS9.InstallDir(JS9.globalOpts.proxyURL),
+				     {title: "Open a link via server proxy"});
+			    // save info for running the task
+			    $(did).data("dispid", udisp.id)
+				  .data("aname", "loadproxy");
+			    break;
+			case "refresh":
+			    $('#refreshLocalFile-' + udisp.id).click();
+			    break;
+			case "savefits":
+			    if( uim ){
+				s = uim.id.replace(/\.png/i, ".fits")
+				          .replace(/\.gz$/i, "")
+				          .replace(/\[.*\]/,"");
+				uim.saveFITS(s);
+			    }
+			    break;
+			case "savepng":
+			    if( uim ){
+				s = uim.id.replace(/\.fit[s]?/i, ".png")
+				          .replace(/\.gz$/i, "")
+				          .replace(/\[.*\]/,"");
+				uim.savePNG(s);
+			    }
+			    break;
+			case "savejpeg":
+			    if( uim ){
+				s = uim.id.replace(/\.fit[s]?/i, ".jpeg")
+				          .replace(/\.png$/i, ".jpeg")
+				          .replace(/\.gz$/i, "")
+				          .replace(/\[.*\]/,"");
+				uim.saveJPEG(s);
+			    }
+			    break;
+			case "print":
+			    if( uim ){
+				uim.print();
+			    }
+			    break;
+			default:
+			    // maybe it's a moveto request
+			    if( key.match(/^moveto_/) ){
+				unew = key.replace(/^moveto_/,"");
+				if( unew === "newdisp" ){
+				    uwin = "lightwin" + JS9.uniqueID();
+			            $("#dhtmlwindowholder").arrive("#" + uwin,
+                                    {onceOnly: true}, function(){
+					uim.moveToDisplay(uwin);
+				    });
+				    JS9.LoadWindow(null, {id: uwin}, "light");
+				} else {
+				    uim.moveToDisplay(unew);
+				}
+				return;
+			    }
+			    for(j=0; j<JS9.images.length; j++){
+				uim = JS9.images[j];
+				kid = key.replace(/ *\((red|green|blue)\)/,"");
+				if( (udisp.id === uim.display.id) &&
+				    (uim.id === kid) ){
+				    // display image, 2D graphics, etc.
+				    uim.displayImage("all");
+				    uim.refreshLayers();
+				    udisp.clearMessage();
+				    break;
+				}
+			    }
+			    break;
+			}
+		    });
+                    },
+		    items: items
+		};
+            }
+	});
+	// View: make button open the contextMenu
+	$("#viewMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#viewMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#viewMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var i, plugin, pname, pinst, key;
+		var lastxclass="";
+		var n = 0;
+		var items = {};
+		var tdisp = getDisplays()[0];
+		var tim = tdisp.image;
+		var editResize = function(disp, obj){
+		    var v1, v2, arr;
+		    delete tdisp.tmp.editingMenu;
+		    if( obj.resize ){
+			arr = obj.resize.split(/[\s,\/]+/);
+			switch(arr.length){
+			case 0:
+			    break;
+			case 1:
+			    if( JS9.isNumber(arr[0]) ){
+				v1 = parseInt(arr[0], 10);
+				disp.resize(v1, v1);
+			    }
+			    break;
+			default:
+			    if( JS9.isNumber(arr[0]) && JS9.isNumber(arr[1]) ){
+				v1 = parseInt(arr[0], 10);
+				v2 = parseInt(arr[1], 10);
+				disp.resize(v1, v2);
+			    }
+			    break;
+			}
+		    }
+		};
+		var keyResize = function(e){
+		    var obj = $.contextMenu.getInputValues(e.data);
+		    var keycode = e.which || e.keyCode;
+		    var vdisp = that.display;
+		    switch( keycode ){
+		    case 9:
+		    case 13:
+			editResize(vdisp, obj);
+			break;
+		    default:
+			vdisp.tmp.editingMenu = true;
+			break;
+		    }
+		};
+		// plugins
+		items["sep" + n++] = {name: "Plugins:"};
+		items["sep" + (n-1)].disabled = true;
+		for(i=0; i<JS9.plugins.length; i++){
+		    plugin = JS9.plugins[i];
+		    pname = plugin.name;
+		    if( plugin.opts.menuItem && (plugin.opts.menu === "view") ){
+			pinst = tdisp.pluginInstances[pname];
+			if( !pinst || pinst.winHandle ){
+			    if( plugin.xclass !== lastxclass ){
+				// items["sep" + n] = "------";
+				n = n + 1;
+			    }
+			    lastxclass = plugin.xclass;
+			    items[pname] = {name: plugin.opts.menuItem};
+			    if( pinst && (pinst.status === "active") ){
+				items[pname].icon = "sun";
+			    }
+			}
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.valpos = {name: "display value/position"};
+		// disable if we don't have info plugin
+		if( !JS9.hasOwnProperty("Info") ){
+		    items.valpos.disabled = true;
+		} else if( tdisp.image && tdisp.image.params.valpos ){
+		    items.valpos.icon = "sun";
+		}
+		items["sep" + n++] = "------";
+		items.rawlayer = {
+		    name: "raw data layers",
+		    items: {}
+		};
+		if( tim && tim.raws.length > 1 ){
+		    for(i=0; i<tim.raws.length; i++){
+			key = "rawlayer_" + tim.raws[i].id;
+			items.rawlayer.items[key] = {
+			    name: tim.raws[i].id
+			};
+			if( tim.raw === tim.raws[i] ){
+			    items.rawlayer.items[key].icon = "sun";
+			}
+		    }
+		    items.rawlayer.items["sep" + n++] = "------";
+		    items.rawlayer.items.rawlayer_remove = {name: "remove"};
+		} else {
+		    items.rawlayer.disabled = true;
+		}
+		items["sep" + n++] = "------";
+		items.resize = {
+		    events: {keyup: keyResize},
+		    name: "change width/height:",
+		    type: "text"
+		};
+		items.fullsize = {name: "set size to full window"};
+		items.resetsize = {name: "reset to original size"};
+		if( !JS9.globalOpts.resize ){
+		    items.resize.disabled = true;
+		    items.fullsize.disabled = true;
+		    items.resetsize.disabled = true;
+		}
+		return {
+		    callback: function(key){
+		    getDisplays().forEach(function(val){
+		        var jj, ucat, umode, uplugin, s;
+			var udisp = val;
+			var uim = udisp.image;
+			switch(key){
+			case "valpos":
+			    if( uim ){
+				uim.params.valpos = !uim.params.valpos;
+				if( !uim.params.valpos ){
+				    udisp.clearMessage();
+				}
+			    }
+			    break;
+			case "show":
+			case "hide":
+			    if( uim ){
+				for( ucat in uim.layers ){
+				    if( uim.layers.hasOwnProperty(ucat) ){
+					if( uim.layers[ucat].dlayer.dtype === "main" ){
+					    uim.showShapeLayer(ucat, key);
+					    if( key === "show" ){
+						uim.refreshLayers();
+					    }
+					}
+				    }
+				}
+			    }
+			    break;
+			case "fullsize":
+			    udisp.resize("full", {center: true});
+			    break;
+			case "resetsize":
+			    udisp.resize("reset");
+			    break;
+			default:
+			    // maybe it's a plugin
+			    for(jj=0; jj<JS9.plugins.length; jj++){
+				uplugin = JS9.plugins[jj];
+				if( uplugin.name === key ){
+				    udisp.displayPlugin(uplugin);
+				    return;
+				}
+			    }
+			    // maybe it's a shape layer
+			    if( uim ){
+				for( ucat in uim.layers ){
+				    if( uim.layers.hasOwnProperty(ucat) ){
+					if( key === ucat ){
+					    umode = uim.layers[ucat].show ?
+						"hide" : "show";
+					    uim.showShapeLayer(ucat, umode);
+					    if( umode === "show" ){
+						uim.refreshLayers();
+					    }
+					    return;
+					}
+				    }
+				}
+			    }
+			    // maybe its a raw data layer
+			    if( tim && key.match(/^rawlayer_/) ){
+				s = key.replace(/^rawlayer_/, "");
+				if( s === "remove" ){
+				    for(i=0; i<tim.raws.length; i++){
+					if( tim.raw === tim.raws[i] ){
+					    tim.rawDataLayer(tim.raw.id,
+							     "remove");
+					}
+				    }
+				} else {
+				    tim.rawDataLayer(s);
+				}
+			    }
+			    break;
+			}
+		    });
+		    },
+		    events: {
+			show: function(opt){
+			    var udisp = that.display;
+			    var obj = {};
+			    if( udisp  ){
+				obj.resize = sprintf("%d %d",
+						     udisp.width, udisp.height);
+				$.contextMenu.setInputValues(opt, obj);
+				JS9.jupyterFocus(".context-menu-item");
+			    }
+			},
+			hide: function(opt){
+			    var obj;
+			    var udisp = that.display;
+			    if( udisp ){
+				// if a key was pressed, do the edit
+				if( udisp.tmp.editingMenu ){
+				    obj = $.contextMenu.getInputValues(opt);
+				    editResize(udisp, obj);
+				}
+			    }
+			}
+		    },
+		    items: items
+		};
+	    }
+	});
+	// Zoom: make button open the contextMenu
+	$("#zoomMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#zoomMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#zoomMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var i, zoom, zoomp, name, name2;
+		var n = 0;
+		var tdisp = getDisplays()[0];
+		var tim = tdisp.image;
+		var editZoom = function(im, obj){
+		    delete tdisp.tmp.editingMenu;
+		    if( !isNaN(obj.zoom) ){
+			im.setZoom(obj.zoom);
+		    }
+		};
+		var keyZoom = function(e){
+		    var obj = $.contextMenu.getInputValues(e.data);
+		    var keycode = e.which || e.keyCode;
+		    var vdisp = that.display;
+		    var vim = vdisp.image;
+		    switch( keycode ){
+		    case 9:
+		    case 13:
+			if( vim ){
+			    editZoom(vim, obj);
+			}
+			break;
+		    default:
+			vdisp.tmp.editingMenu = true;
+			break;
+		    }
+		};
+		var items = {};
+		items.zoomtitle = {name: "Zoom Factors:", disabled: true};
+		for(i=JS9.imageOpts.zooms; i>=1; i--){
+		    zoom = Math.pow(2,-i);
+		    zoomp = Math.pow(2,i);
+		    name = sprintf("zoom%s", zoom);
+		    name2 = sprintf("zoom 1/%s", zoomp);
+		    items[name] = {name: name2};
+		    if( tim && (tim.rgb.sect.zoom === zoom) ){
+			items[name].icon = "sun";
+		    }
+		}
+		for(i=0; i<=JS9.imageOpts.zooms; i++){
+		    zoom = Math.pow(2,i);
+		    name = sprintf("zoom%s", zoom);
+		    name2 = sprintf("zoom %s", zoom);
+		    items[name] = {name: name2};
+		    if( tim && (tim.rgb.sect.zoom === zoom) ){
+			items[name].icon = "sun";
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.zoomiotitle = {name: "Zoom In/Out:", disabled: true};
+		items.zoomIn = {name: "zoom in"};
+		items.zoomOut = {name: "zoom out"};
+		items.zoomToFit = {name: "zoom to fit"};
+		items["sep" + n++] = "------";
+		items.zoom = {
+		    events: {keyup: keyZoom},
+		    name: "numeric zoom value:",
+		    type: "text"
+		};
+		items["sep" + n++] = "------";
+		items.center = {name: "pan to center"};
+		items.reset = {name: "reset zoom/pan"};
+		return {
+		    callback: function(key){
+		    getDisplays().forEach(function(val){
+			var udisp = val;
+			var uim = udisp.image;
+			if( uim ){
+			    switch(key){
+			    case "zoomIn":
+				uim.setZoom("x2");
+				break;
+			    case "zoomOut":
+				uim.setZoom("/2");
+				break;
+			    case "zoomToFit":
+				uim.setZoom("tofit");
+				break;
+			    case "center":
+				uim.setPan();
+				break;
+			    case "reset":
+				uim.setZoom("1");
+				uim.setPan();
+				break;
+			    default:
+				// look for a numeric zoom
+				if( key.match(/^zoom/) ){
+				    uim.setZoom(key.slice(4));
+				}
+				break;
+			    }
+			}
+		    });
+		    },
+		    events: {
+			show: function(opt){
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    var obj = {};
+			    if( uim  ){
+				obj.zoom =
+				    String(uim.rgb.sect.zoom);
+			    }
+			    $.contextMenu.setInputValues(opt, obj);
+			    JS9.jupyterFocus(".context-menu-item");
+			},
+			hide: function(opt){
+			    var obj;
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    if( uim ){
+				// if a key was pressed, do the edit
+				if( udisp.tmp.editingMenu ){
+				    obj = $.contextMenu.getInputValues(opt);
+				    editZoom(uim, obj);
+				}
+			    }
+			}
+		    },
+		    items: items
+		};
+	    }
+	});
+	// Scale: make button open the contextMenu
+	$("#scaleMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#scaleMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#scaleMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var i, s1, s2;
+		var n = 0;
+		var items = {};
+		var tdisp = getDisplays()[0];
+		var editScale = function(im, obj){
+		    delete tdisp.tmp.editingMenu;
+		    if( JS9.isNumber(obj.scalemin) ){
+			im.params.scalemin = parseFloat(obj.scalemin);
+			im.params.scaleclipping = "user";
+		    }
+		    if( JS9.isNumber(obj.scalemax) ){
+			im.params.scalemax = parseFloat(obj.scalemax);
+			im.params.scaleclipping = "user";
+		    }
+		    im.displayImage("colors");
+		};
+		var keyScale = function(e){
+		    var obj = $.contextMenu.getInputValues(e.data);
+		    var keycode = e.which || e.keyCode;
+		    var vdisp = that.display;
+		    var vim = vdisp.image;
+		    switch( keycode ){
+		    case 9:
+		    case 13:
+			editScale(vim, obj);
+			break;
+		    default:
+			vdisp.tmp.editingMenu = true;
+			break;
+		    }
+		};
+		items.scaletitle = {name: "Scaling Algorithms:",
+				    disabled: true};
+		for(i=0; i<JS9.scales.length; i++){
+		    s1 = JS9.scales[i];
+		    s2 = s1;
+		    items[s1] = {name: s2};
+		    if( tdisp.image && (tdisp.image.params.scale === s1) ){
+			items[s1].icon = "sun";
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.scalemin = {
+		    events: {keyup: keyScale},
+		    name: "low limit for clipping:",
+		    type: "text"
+		};
+		items.scalemax = {
+		    events: {keyup: keyScale},
+		    name: "high limit for clipping:",
+		    type: "text"
+		};
+		items["sep" + n++] = "------";
+		items.dminmax = {
+		    name: "set limits to data min/max"
+		};
+		items.zscale = {
+		    name: "set limits to zscale z1/z2"
+		};
+		items.zmax = {
+		    name: "set limits to zscale z1/data max"
+		};
+		return {
+                    callback: function(key, opt){
+		    getDisplays().forEach(function(val){
+			var udisp = val;
+			var uim = udisp.image;
+			if( uim ){
+			    switch(key){
+			    case "dminmax":
+				uim.params.scaleclipping = "dataminmax";
+				uim.params.scalemin = uim.raw.dmin;
+				uim.params.scalemax = uim.raw.dmax;
+				$.contextMenu.setInputValues(opt,
+				     {scalemin: String(uim.params.scalemin),
+				      scalemax: String(uim.params.scalemax)});
+				uim.displayImage("colors");
+				return false;
+			    case "zscale":
+				if( (uim.params.z1 === undefined) || 
+				    (uim.params.z2 === undefined) ){
+				    uim.zscale(false);
+				}
+				uim.params.scaleclipping = "zscale";
+				uim.params.scalemin = uim.params.z1;
+				uim.params.scalemax = uim.params.z2;
+				$.contextMenu.setInputValues(opt,
+				     {scalemin: String(uim.params.scalemin),
+				      scalemax: String(uim.params.scalemax)});
+				uim.displayImage("colors");
+				return false;
+			    case "zmax":
+				if( (uim.params.z1 === undefined) ){
+				    uim.zscale(false);
+				}
+				uim.params.scaleclipping = "zmax";
+				uim.params.scalemin = uim.params.z1;
+				uim.params.scalemax = uim.raw.dmax;
+				$.contextMenu.setInputValues(opt,
+				     {scalemin: String(uim.params.scalemin),
+				      scalemax: String(uim.params.scalemax)});
+				uim.displayImage("colors");
+				return false;
+			    default:
+				uim.setScale(key);
+				break;
+			    }
+			}
+		    });
+		    },
+		    events: {
+			show: function(opt){
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    var obj = {};
+			    if( uim  ){
+				obj.scalemin =
+				    String(uim.params.scalemin);
+				obj.scalemax =
+				    String(uim.params.scalemax);
+			    }
+			    $.contextMenu.setInputValues(opt, obj);
+			    JS9.jupyterFocus(".context-menu-item");
+			},
+			hide: function(opt){
+			    var obj;
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    if( uim ){
+				// if a key was pressed, do the edit
+				if( udisp.tmp.editingMenu ){
+				    obj = $.contextMenu.getInputValues(opt);
+				    editScale(uim, obj);
+				}
+			    }
+			}
+		    },
+		    items: items
+		};
+	    }
+	});
+	// Color: make button open the contextMenu
+	$("#colorMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#colorMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#colorMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var i, s1, s2, arr;
+		var n = 0;
+		var items = {};
+		var tdisp = getDisplays()[0];
+		var editColor = function(im, obj){
+		    delete tdisp.tmp.editingMenu;
+		    if( obj.contrast && !isNaN(obj.contrast) ){
+			im.params.contrast = parseFloat(obj.contrast);
+		    }
+		    if( obj.bias && !isNaN(obj.bias) ){
+			im.params.bias = parseFloat(obj.bias);
+		    }
+		    if( !isNaN(obj.opacity) ){
+			if( obj.opacity !== "" ){
+			    im.params.opacity = parseFloat(obj.opacity);
+			} else {
+			    im.params.opacity = 1.0;
+			}
+		    }
+		    im.displayImage("colors");
+		};
+		var keyColor = function(e){
+		    var obj = $.contextMenu.getInputValues(e.data);
+		    var keycode = e.which || e.keyCode;
+		    var vdisp = that.display;
+		    var vim = vdisp.image;
+		    switch( keycode ){
+		    case 9:
+		    case 13:
+			editColor(vim, obj);
+			break;
+		    default:
+			vdisp.tmp.editingMenu = true;
+			break;
+		    }
+		};
+		items.cmaptitle = {name: "Colormaps:", disabled: true};
+		for(i=0; i<JS9.globalOpts.topColormaps.length; i++){
+		    s1 = JS9.globalOpts.topColormaps[i];
+		    s2 = s1;
+		    items[s1] = {name: s2};
+		    if( tdisp.image && (tdisp.image.cmapObj.name === s1) ){
+			items[s1].icon = "sun";
+		    }
+		}
+		items.morecmaps = {
+		    name: "more ...",
+		    items: {morecmapstitle: {name: "Colormaps:",
+					  disabled: true}}
+		};
+		for(i=0; i<JS9.colormaps.length; i++){
+		    s1 = JS9.colormaps[i].name;
+		    if( JS9.globalOpts.topColormaps.indexOf(s1) === -1 ){
+		        s2 = s1;
+		        items.morecmaps.items[s1] = {name: s2};
+		        if( tdisp.image && (tdisp.image.cmapObj.name === s1) ){
+			    items.morecmaps.items[s1].icon = "sun";
+		        }
+                    }
+		}
+		items["sep" + n++] = "------";
+		items.imfilter = {
+		    name: "image filters",
+		    items: {}
+		};
+		arr = JS9.Image.prototype.filterRGBImage.call(null).sort();
+		for(i=0; i<arr.length; i++){
+		    if( arr[i] === "convolve" ){
+			continue;
+		    }
+		    s1 = "imfilter_" + arr[i];
+		    items.imfilter.items[s1] = {
+			name: arr[i]
+		    };
+		}
+		items["sep" + n++] = "------";
+		items.contrast = {
+		    events: {keyup: keyColor},
+		    name: "contrast value:",
+		    type: "text"
+		};
+		items.bias = {
+		    events: {keyup: keyColor},
+		    name: "bias value:",
+		    type: "text"
+		};
+		items.opacity = {
+		    events: {keyup: keyColor},
+		    name: "opacity value:",
+		    type: "text"
+		};
+		items["sep" + n++] = "------";
+		items.reset = {name: "reset contrast/bias"};
+		items["sep" + n++] = "------";
+		items.loadcmap = {name: "load colormap"};
+		items.savecmap = {name: "save colormap"};
+		items.invert = {name: "invert colormap"};
+		if( tdisp.image && tdisp.image.params.invert ){
+		    items.invert.icon = "sun";
+		}
+		items["sep" + n++] = "------";
+		items.rgb = {name: "RGB mode"};
+		if( JS9.globalOpts.rgb.active ){
+		    items.rgb.icon = "sun";
+		}
+		return {
+		    callback: function(key){
+		    getDisplays().forEach(function(val){
+			var udisp = val;
+			var uim = udisp.image;
+			if( uim ){
+			    switch(key){
+			    case "loadcmap":
+				JS9.OpenColormapMenu({display: udisp});
+				break;
+			    case "savecmap":
+				JS9.SaveColormap({display: udisp});
+				break;
+			    default:
+				if( key.match(/^imfilter_/) ){
+				    s1 = key.replace(/^imfilter_/,"");
+				    uim.filterRGBImage(s1);
+				    return;
+				}
+				uim.setColormap(key);
+			    }
+			}
+		    });
+		    },
+		    events: {
+			show: function(opt){
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    var obj = {};
+			    if( uim  ){
+				obj.contrast = String(uim.params.contrast);
+				obj.bias = String(uim.params.bias);
+				obj.opacity = String(uim.params.opacity);
+				obj.sigma = String(uim.params.sigma);
+			    }
+			    $.contextMenu.setInputValues(opt, obj);
+			    JS9.jupyterFocus(".context-menu-item");
+			},
+			hide: function(opt){
+			    var obj;
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    if( uim ){
+				// if a key was pressed, do the edit
+				if( udisp.tmp.editingMenu ){
+				    obj = $.contextMenu.getInputValues(opt);
+				    editColor(uim, obj);
+				}
+			    }
+			}
+		    },
+		    items: items
+		};
+	    }
+	});
+	// Region: make button open the contextMenu
+	$("#regionMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#regionMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#regionMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var i, s1;
+		var tdisp = getDisplays()[0];
+		var tim = tdisp.image;
+		var items = {
+		    "regiontitle": {name: "Regions:", disabled: true},
+		    "annulus": {name: "annulus"},
+		    "box": {name: "box"},
+		    "circle": {name: "circle"},
+		    "ellipse": {name: "ellipse"},
+		    "line": {name: "line"},
+		    "point": {name: "point"},
+		    "polygon": {name: "polygon"},
+		    "text": {name: "text"},
+		    "sep1": "------",
+		    "loadRegions" : {name: "load regions"},
+		    "saveRegions" : {name: "save regions"},
+		    "copyto" : {name: "copy regions to",
+				items: { copytotitle: {name: "choose image:",
+						       disabled: true}}},
+		    "listRegions" : {name: "list regions"},
+		    "removeRegions" : {name: "remove regions"},
+		    "sep2": "------",
+		    "listSelRegions" : {name: "list selected"},
+		    "removeSelRegions" : {name: "remove selected"},
+		    "sep3": "------",
+		    "listonchange" : {name: "list on change"},
+		    "xeqonchange" : {name: "xeq on change"}
+		};
+		if( tim && (JS9.images.length > 1) ){
+		    for(i=0; i<JS9.images.length; i++){
+			if( tim !== JS9.images[i] ){
+			    s1 = "copyto_" + JS9.images[i].id;
+			    items.copyto.items[s1] = {name: JS9.images[i].id};
+			}
+		    }
+		    items.copyto.items.copyto_all = { name: "all images" };
+		    items.copyto.disabled = false;
+		} else {
+		    items.copyto.disabled = true;
+		}
+		// disable if we don't have info plugin
+		if( !JS9.hasOwnProperty("Info") ){
+		    items.listRegions.disabled = true;
+		}
+		if( tim && tim.params.listonchange ){
+		    items.listonchange.icon = "sun";
+		}
+		if( tim && tim.params.xeqonchange ){
+		    items.xeqonchange.icon = "sun";
+		}
+		return {
+		    callback: function(key){
+		    getDisplays().forEach(function(val){
+			var uid;
+			var udisp = val;
+			var uim = udisp.image;
+			if( uim ){
+			    switch(key){
+			    case "removeRegions":
+				uim.removeShapes("regions", "all");
+				udisp.clearMessage("regions");
+				break;
+			    case "removeSelRegions":
+				uim.removeShapes("regions", "selected");
+				udisp.clearMessage("regions");
+				break;
+			    case "loadRegions":
+				JS9.OpenRegionsMenu({display: udisp});
+				break;
+			    case "saveRegions":
+				uim.saveRegions("js9.reg", "all");
+				break;
+			    case "listRegions":
+				uim.listRegions("all", {mode: 2});
+				break;
+			    case "listSelRegions":
+				uim.listRegions("selected", {mode: 2});
+				break;
+			    case "xeqonchange":
+				uim.params.xeqonchange = !uim.params.xeqonchange;
+				break;
+			    case "listonchange":
+				uim.params.listonchange = !uim.params.listonchange;
+				break;
+			    default:
+				// maybe it's a copyto request
+				if( key.match(/^copyto_/) ){
+				    uid = key.replace(/^copyto_/,"");
+				    uim.copyRegions(uid);
+				    return;
+				}
+				// otherwise it's new region
+				uim.addShapes("regions", key, {ireg: true});
+				break;
+			    }
+			}
+		    });
+		    },
+		    items: items
+		};
+	    }
+	});
+	// WCS: make button open the contextMenu
+	$("#wcsMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#wcsMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#wcsMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var i, s1, s2, key, altwcs;
+		var n=0, nwcs=0, got=0;
+		var items = {};
+		var tdisp = getDisplays()[0];
+		var tim = tdisp.image;
+		var editRotate = function(im, obj){
+		    delete tdisp.tmp.editingMenu;
+		    if( JS9.isNumber(obj.rot) ){
+			im.rotateData(parseFloat(obj.rot));
+		    }
+		};
+		var keyRotate = function(e){
+		    var obj = $.contextMenu.getInputValues(e.data);
+		    var keycode = e.which || e.keyCode;
+		    var vdisp = that.display;
+		    var vim = vdisp.image;
+		    switch( keycode ){
+		    case 9:
+		    case 13:
+			if( vim ){
+			    editRotate(vim, obj);
+			}
+			break;
+		    default:
+			vdisp.tmp.editingMenu = true;
+			break;
+		    }
+		};
+		items.wcssystitle = {name: "WCS Systems:", disabled: true};
+		for(i=0; i<JS9.wcssyss.length; i++){
+		    s1 = JS9.wcssyss[i];
+		    s2 = s1;
+		    items[s1] = {name: s2};
+		    if( tim && (tim.params.wcssys === s1) ){
+			items[s1].icon = "sun";
+			got++;
+		    }
+		}
+		// if we don't know which wcssys is current, assume "native"
+		if( !got ){
+		    s1 = "native";
+		    items[s1].icon = "sun";
+		}
+		items["sep" + n++] = "------";
+		items.wcsutitle = {name: "WCS Units:", disabled: true};
+		for(i=0; i<JS9.wcsunitss.length; i++){
+		    s1 = JS9.wcsunitss[i];
+		    s2 = s1;
+		    items[s1] = {name: s2};
+		    if( tim && (tim.params.wcsunits === s1) ){
+			items[s1].icon = "sun";
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.altwcs = {
+		    name: "alternate wcs",
+		    items: {altwcstitle: {name: "choose a wcs:",
+					  disabled: true}}
+		};
+		if( !tim || !tim.raw || !tim.raw.altwcs ){
+		    items.altwcs.disabled = true;
+		} else {
+		    altwcs = tim.raw.altwcs;
+		    for(key in altwcs ){
+			if( altwcs.hasOwnProperty(key) ){
+			    s1 = "altwcs_" + key;
+			    if( altwcs[key].header.WCSNAME ){
+				s2 = altwcs[key].header.WCSNAME + 
+				    "    (" + key + ")";
+			    } else {
+				s2 = key;
+			    }
+			    items.altwcs.items[s1] = { name: s2 };
+			    if( tim.raw.wcs === altwcs[key].wcs ){
+				items.altwcs.items[s1].icon = "sun";
+			    }
+			    nwcs++;
+			}
+		    }
+		    // disable if we only have the default wcs
+		    if( nwcs < 2 ){
+			items.altwcs.disabled = true;
+			items.altwcs.items.notasks = {
+			    name: "[none]",
+			    disabled: true,
+			    events: {keyup: function(){return;}}
+			};
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.reproject = {
+		    name: "wcs reproject",
+		    items: {reprojtitle: {name: "using the wcs from:", disabled: true}}
+		};
+		for(i=0, nwcs=0; i<JS9.images.length; i++){
+		    if( tim !== JS9.images[i]  &&
+			JS9.images[i].raw.wcs ){
+			s1 = "reproject_" + JS9.images[i].id;
+			items.reproject.items[s1] = {
+			    name: JS9.images[i].id
+			};
+			nwcs++;
+		    }
+		}
+		if( nwcs === 0 ){
+		    items.reproject.items.notasks = {
+			name: "[none]",
+			disabled: true,
+			events: {keyup: function(){return;}}
+		    };
+		} else {
+		    items.reproject.disabled = false;
+		    items.reproject.items["sep" + n++] = "------";
+		    items.reproject.items.reproject_wcsalign = {
+			name: "display wcs-aligned"
+		    };
+		    if( tim && (tim.params.wcsalign) ){
+			items.reproject.items.reproject_wcsalign.icon = "sun";
+		    }
+		}
+		items.reproject.items["sep" + n++] = "------";
+		items.reproject.items.rotatetitle = {
+		    name: "by rotating the image:", disabled: true
+		};
+		items.reproject.items.reproject_northup = {
+		    name: "so that north is up"
+		};
+		items.reproject.items.rot = {
+		    events: {keyup: keyRotate},
+		    name: "using angle in degrees:",
+		    type: "text"
+		};
+		if( !tim || !tim.raw || !tim.raw.header || !tim.raw.wcsinfo ){
+		    items.reproject.disabled = true;
+		}
+		return {
+                    callback: function(key){
+		    getDisplays().forEach(function(val){
+			var file, s;
+			var rexp = new RegExp(key);
+			var udisp = val;
+			var uim = udisp.image;
+			if( uim ){
+			    // maybe it's an alt wcs request
+			    if( key.match(/^altwcs_/) ){
+				s = key.replace(/^altwcs_/,"");
+				uim.setWCS(s);
+				return;
+			    }
+			    // maybe it's a wcs reprojection request
+			    if( key.match(/^reproject_/) ){
+				if( key === "reproject_wcsalign" ){
+				    uim.params.wcsalign = !uim.params.wcsalign;
+				    uim.displayImage("display");
+				} else if( key === "reproject_northup" ){
+				    uim.rotateData("northisup");
+				}  else {
+				    file = key.replace(/^reproject_/,"");
+				    uim.reprojectData(file);
+				}
+				return;
+			    }
+			    // otherwise it's a wcs directive
+			    if( JS9.wcssyss.join("@").search(rexp) >=0 ){
+				uim.setWCSSys(key);
+			    } else if( JS9.wcsunitss.join("@").search(rexp)>=0){
+				uim.setWCSUnits(key);
+			    } else {
+				JS9.error("unknown wcs sys/units: " + key);
+			    }
+			}
+		    });
+		    },
+		    events: {
+			show: function(opt){
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    var obj = {};
+			    if( uim ){
+				obj.rot = "";
+				$.contextMenu.setInputValues(opt, obj);
+				JS9.jupyterFocus(".context-menu-item");
+			    }
+			},
+			hide: function(opt){
+			    var obj;
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    if( uim ){
+				obj = $.contextMenu.getInputValues(opt);
+				// if a key was pressed, do the edit
+				if( udisp.tmp.editingMenu ){
+				    editRotate(uim, obj);
+				}
+			    }
+			}
+		    },
+		    items: items
+		};
+	    }
+	});
+	// ANALYSIS: make button open the contextMenu
+	$("#analysisMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#analysisMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#analysisMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+	        var i, j, s, apackages, atasks;
+		var plugin, pinst, pname;
+		var parr;
+		var parexp = /fitsHeader\(([A-Za-z0-9_]+),(.*)\)/;
+		var winexp = /winVar\((.*),(.*)\)/;
+		var js9exp = /js9Var\((.*),(.*)\)/;
+		var imexp = /imVar\((.*),(.*)\)/;
+		var ntask = 0;
+		var n = 0;
+		// var m = 0;
+		var items = {};
+		var tdisp = getDisplays()[0];
+		var im = tdisp.image;
+		var lastxclass="";
+		var seq = function(s1, s2){
+		    if( !s1 || !s2 ){
+			return false;
+		    }
+		    return String(s1).toUpperCase() === 
+			   String(s2).toUpperCase();
+		};
+		var editAnalysis = function(im, obj){
+		    delete tdisp.tmp.editingMenu;
+		    if( !obj.sigma ){
+			obj.sigma = "none";
+		    }
+		    if( obj.sigma === "none" ){
+			im.params.sigma = obj.sigma;
+			im.rawDataLayer("gaussBlur", "remove");
+		    } else {
+			im.params.sigma = parseFloat(obj.sigma);
+			im.gaussBlurData(im.params.sigma);
+		    }
+		};
+		var keyAnalysis = function(e){
+		    var obj = $.contextMenu.getInputValues(e.data);
+		    var keycode = e.which || e.keyCode;
+		    var vdisp = that.display;
+		    var vim = vdisp.image;
+		    switch( keycode ){
+		    case 9:
+		    case 13:
+			editAnalysis(vim, obj);
+			break;
+		    default:
+			vdisp.tmp.editingMenu = true;
+			break;
+		    }
+		};
+		for(i=0; i<JS9.plugins.length; i++){
+		    plugin = JS9.plugins[i];
+		    pname = plugin.name;
+		    if( plugin.opts.menuItem &&
+			(plugin.opts.menu === "analysis") ){
+			pinst = tdisp.pluginInstances[pname];
+			if( !pinst || pinst.winHandle ){
+			    if( plugin.xclass !== lastxclass ){
+				if( n > 0 ){
+				    items["sep" + n++] = "------";
+				}
+				items["sep" + n++] =
+				    {name: plugin.xclass + " Plugins:"};
+			        items["sep" + (n-1)].disabled = true;
+			    }
+			    lastxclass = plugin.xclass;
+			    items[pname] = {
+				name: plugin.opts.menuItem
+			    };
+			    if( pinst && (pinst.status === "active") ){
+				items[pname].icon = "sun";
+			    }
+			    n++;
+			}
+		    }
+		}
+		// no server side analysis for CDN all-in-one configuration
+		if( !JS9.allinone ){
+		if( n > 0 ){
+		    items["sep" + n++] = "------";
+		}
+	        items.remotetitle = {
+		    name: "Server-side Tasks:",
+		    disabled: true
+	        };
+		if( im && im.analysisPackages ){
+		    apackages = im.analysisPackages;
+		    // m = 0;
+		    for(j=0; j<apackages.length; j++){
+			atasks = apackages[j];
+			for(i=0; i<atasks.length; i++){
+			    if( atasks[i].hidden ){
+				continue;
+			    }
+			    if( atasks[i].files.match(/^fits$/) &&
+				!im.fitsFile ){
+				continue;
+			    }
+			    if( atasks[i].files.match(/^png$/) &&
+				(im.source !== "fits2png") ){
+				continue;
+			    }
+			    if( atasks[i].files.match(/^table$/) ){
+				if( im.imtab !== "table" ){
+				    continue;
+				}
+			    }
+			    if( atasks[i].files.match(/^image$/) ){
+				if( im.imtab !== "image" ){
+				    continue;
+				}
+			    }
+			    // header params: fitsHeader(pname,pvalue)
+			    parr = atasks[i].files.match(parexp);
+			    if( parr ){
+				s = im.raw.header[parr[1].toUpperCase()];
+				if( !seq(s, parr[2]) ){
+				    continue;
+				}
+			    }
+			    // win vars: winVar(name,value)
+			    parr = atasks[i].files.match(winexp);
+			    if( parr ){
+				s = JS9.varByName(parr[1], window);
+				if( !seq(s, parr[2]) ){
+				    continue;
+				}
+			    }
+			    // js9 vars: js9Var(name,value)
+			    parr = atasks[i].files.match(js9exp);
+			    if( parr ){
+				s = JS9.varByName(parr[1], JS9);
+				if( !seq(s, parr[2]) ){
+				    continue;
+				}
+			    }
+			    // im vars: imVar(name,value)
+			    parr = atasks[i].files.match(imexp);
+			    if( parr ){
+				s = JS9.varByName(parr[1], im);
+				if( !seq(s, parr[2]) ){
+				    continue;
+				}
+			    }
+			    s = atasks[i].title;
+			    if( atasks[i].purl ){
+				s += " ...";
+			    }
+			    items[atasks[i].name] = {
+				name: s
+			    };
+			    ntask++;
+			    // m++;
+			}
+		    }
+		}
+		if( !ntask ){
+		    items.notasks = {
+			name: "[none]",
+			disabled: true,
+			events: {keyup: function(){return;}}
+		    };
+		    if( JS9.globalOpts.loadProxy &&
+			im && im.raw && im.raw.hdu && im.raw.hdu.vfile ){
+			items.upload = {name: "upload FITS to make tasks available"};
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.sigma = {
+		    events: {keyup: keyAnalysis},
+		    name: "Gaussian blur sigma:",
+		    type: "text"
+		};
+		items.dpath = {name: "set data path ..."};
+		}
+		return {
+                    callback: function(key){
+		    getDisplays().forEach(function(val){
+			var a, did, jj, tplugin;
+			var udisp = val;
+			var uim = udisp.image;
+			// first look for a plugin -- no image rquired
+			for(jj=0; jj<JS9.plugins.length; jj++){
+			    tplugin = JS9.plugins[jj];
+			    if( tplugin.name === key ){
+				udisp.displayPlugin(tplugin);
+				return;
+			    }
+			}
+			// the rest need an image loaded
+			if( uim ){
+			    switch(key){
+			    case "dpath":
+				// call this once window is loaded
+			        $("#dhtmlwindowholder").arrive("#dataPathForm",
+                                {onceOnly: true}, function(){
+				    $('#dataPath').val(JS9.globalOpts.dataPath);
+				});
+				did = uim.displayAnalysis("textline",
+					 JS9.InstallDir(JS9.analOpts.dpathURL),
+					 {title: "Data Path for Drag and Drop"});
+				// save display id
+				$(did).data("dispid", udisp.id);
+				break;
+			    case "upload":
+				uim.uploadFITSFile();
+				break;
+			    default:
+				// look for analysis routine
+				a = uim.lookupAnalysis(key);
+				if( a ){
+				    // load param url to run analysis task
+				    // param url is relative to js9 install dir
+				    if( a.purl ){
+					did = uim.displayAnalysis("params",
+						  JS9.InstallDir(a.purl),
+						  {title: a.title+": "+uim.fitsFile,
+						  winformat: a.pwin});
+					// save info for running the task
+					$(did).data("dispid", udisp.id)
+				              .data("aname", a.name);
+				    } else {
+					// else run task directly
+					uim.runAnalysis(a.name);
+				    }
+				}
+				return;
+			    }
+			}
+		    });
+		    },
+		    events: {
+			show: function(opt){
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    var obj = {};
+			    if( uim  ){
+				obj.sigma = String(uim.params.sigma);
+			    }
+			    $.contextMenu.setInputValues(opt, obj);
+			    JS9.jupyterFocus(".context-menu-item");
+			},
+			hide: function(opt){
+			    var obj;
+			    var udisp = that.display;
+			    var uim = udisp.image;
+			    if( uim ){
+				// if a key was pressed, do the edit
+				if( udisp.tmp.editingMenu ){
+				    obj = $.contextMenu.getInputValues(opt);
+				    editAnalysis(uim, obj);
+				}
+			    }
+			}
+		    },
+		    items: items
+		};
+	    }
+	});
+	// HELP: make button open the contextMenu
+	$("#helpMenu" + that.id).on("mousedown", function(evt){
+            evt.preventDefault();
+            $("#helpMenu" + that.id).contextMenu();
+	});
+	// define contextMenu actions
+	$.contextMenu({
+            selector: "#helpMenu" + that.id,
+	    zIndex: JS9.MENUZINDEX,
+	    events: { hide: onhide },
+            build: function(){
+		var key, val;
+		var n=1;
+		var last = "";
+		var items = {};
+		items.helptitle = {name: "JS9 help:", disabled: true};
+		// first, internal js9 pages
+		for( key in JS9.helpOpts ){
+		    if( JS9.helpOpts.hasOwnProperty(key) ){
+			val = JS9.helpOpts[key];
+			if( val.heading === "JS9Help" ){
+			    last = val.type;
+			    items[key] = {name: val.title};
+			}
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.plugintitle = {name: "JS9 plugins:", disabled: true};
+		// second, the JS9 core plugins
+		for( key in JS9.helpOpts ){
+		    if( JS9.helpOpts.hasOwnProperty(key) ){
+			val = JS9.helpOpts[key];
+			if( val.heading === "JS9" ){
+			    last = val.type;
+			    items[key] = {name: val.title};
+			}
+		    }
+		}
+		// last, the others
+		for( key in JS9.helpOpts ){
+		    if( JS9.helpOpts.hasOwnProperty(key) ){
+			val = JS9.helpOpts[key];
+			if( val.heading === "JS9Help" || 
+			    val.heading === "JS9" ){
+			    continue;
+			}
+			if( (last !== "") && (val.type !== last) ){
+			    items["sep" + n++] = "------";
+			    if( val.heading ){
+				items["sep" + n++] =
+				    {name: val.heading + " plugins:"};
+			        items["sep" + (n-1)].disabled = true;
+			    }
+			}
+			last = val.type;
+			items[key] = {name: val.title};
+		    }
+		}
+		items["sep" + n++] = "------";
+		items.about = {name: "About JS9"};
+		return{
+		    callback: function(key){
+			switch(key){
+			case "about":
+			    alert(sprintf("JS9: image display right in your browser\nversion: %s\nprincipals: Eric Mandel (lead), Alexey Vikhlinin (science,management)\ncontact: saord@cfa.harvard.edu\n%s", JS9.VERSION, JS9.COPYRIGHT));
+			    break;
+			default:
+			    JS9.DisplayHelp(key);
+			    break;
+			}
+		    },
+		    items: items
+		};
+	    }
+	});
+    });
+};
+
+JS9.RegisterPlugin("JS9", "Menubar", JS9.Menubar.init,
+		   {winDims: [JS9.Menubar.WIDTH, JS9.Menubar.HEIGHT]});
+
+// ---------------------------------------------------------------------
+// Panner plugin
+// ---------------------------------------------------------------------
+
+/*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
+/*global $, JS9 */
+
+// create our namespace, and specify some meta-information and params
+JS9.Panner = {};
+JS9.Panner.CLASS = "JS9";
+JS9.Panner.NAME = "Panner";
+JS9.Panner.WIDTH =  320;	// width of light window
+JS9.Panner.HEIGHT = 320;	// height of light window
+JS9.Panner.SWIDTH =  250;	// width of div
+JS9.Panner.SHEIGHT = 250;	// height of div
+
+// defaults for panner
+JS9.Panner.opts = {
+    // override fabric defaults
+    hasControls: false,
+    hasRotatingPoint: false,
+    hasBorders: false,
+    // initial panner zoom
+    zoom: 4,
+    // canvas options
+    canvas: {
+	selection: true
+    },
+    // panner box colors
+    tagcolors: {
+	defcolor: "#00FF00"
+    }
+};
+
+// call a JS9 routine from a button in the panner plugin toolbar
+// the plugin instantiation saves the display id in the toolbar div
+JS9.Panner.bcall = function(which, cmd, arg1){
+    var dispid, im;
+    // the button plugintoolbar div has data containing the id of the display
+    dispid = $(which).closest("div[class^=JS9PluginToolbar]").data("displayid");
+    if( dispid ){
+	im = JS9.getImage(dispid);
+    } else {
+	JS9.error("can't find display for cmd: "+cmd);
+    }
+    if( !im ){
+	JS9.error("can't find image for cmd: "+cmd);
+    }
+    switch(cmd){
+    case "zoomPanner":
+	if( arguments.length < 3 ){
+	    JS9.error("missing argument(s) for cmd: "+cmd);
+	}
+	try{
+	    JS9.Panner.zoom(im, arg1);
+	} catch(e){
+	    JS9.error("error calling zoomPanner()", e);
+	}
+	break;
+    case "panImage":
+	try{
+	    im.setPan();
+	} catch(e){
+	    JS9.error("error calling setPan()", e);
+	}
+	break;
+    default:
+        break;
+    }
+};
+
+// html used by the panner plugin
+JS9.Panner.HTML =
+"<span>" +
+"<button type='button' class='JS9Button' onClick='JS9.Panner.bcall(this, \"zoomPanner\", \"x2\"); return false'>x2</button>" +
+"<button type='button' class='JS9Button' onClick='JS9.Panner.bcall(this, \"zoomPanner\", \"/2\"); return false'>/2</button>" +
+"<button type='button' class='JS9Button' onClick='JS9.Panner.bcall(this, \"zoomPanner\", \"1\"); return false'>z1</button>" +
+"<button type='button' class='JS9Button' onClick='JS9.Panner.bcall(this, \"panImage\"); return false'>center</button>" +
+"</span>";
+
+// JS9 Panner constructor
+JS9.Panner.init = function(width, height){
+    var pos, ix, iy;
+    var dlayer;
+    var that = this;
+    // set width and height on div
+    this.width = this.divjq.attr("data-width");
+    if( !this.width  ){
+	this.width  = width  || JS9.Panner.WIDTH;
+    }
+    this.divjq.css("width", this.width);
+    this.width = parseInt(this.divjq.css("width"), 10);
+    this.height = this.divjq.attr("data-height");
+    if( !this.height ){
+	this.height = height || JS9.Panner.HEIGHT;
+    }
+    this.divjq.css("height", this.height);
+    this.height = parseInt(this.divjq.css("height"), 10);
+    // create DOM canvas element
+    this.canvas = document.createElement("canvas");
+    // jquery version for event handling and DOM manipulation
+    this.canvasjq = $(this.canvas);
+    // set class
+    this.canvasjq.addClass("JS9Panner");
+    // required so graphical layers will be on top:
+    this.canvasjq.css("z-index", JS9.ZINDEX);
+    // how do we allow users to set the size of the canvas??
+    // it doesn't go into the CSS and we have no canvas on the Web page ...
+    this.canvasjq.attr("width", this.width);
+    this.canvasjq.attr("height", this.height);
+    // drawing context
+    this.context = this.canvas.getContext("2d");
+    // turn off anti-aliasing
+    if( !JS9.ANTIALIAS ){
+	this.context.imageSmoothingEnabled = false;
+	this.context.mozImageSmoothingEnabled = false;
+	this.context.webkitImageSmoothingEnabled = false;
+	this.context.msImageSmoothingEnabled = false;
+    }
+    // add container with canvas to the high-level div
+    this.containerjq = $("<div>")
+	.addClass("JS9Container")
+	.append(this.canvasjq)
+	.appendTo(this.divjq);
+    // add panner graphics layer to the display
+    // the panner will be appended to the div of the plugin
+    dlayer = this.display.newShapeLayer("panner", JS9.Panner.opts, this.divjq);
+    // add a callback to pan when the panning rectangle is moved
+    dlayer.canvas.on("object:modified", function(opts){
+	var im = that.display.image;
+	if( im ){
+	    pos = opts.target.getCenterPoint();
+	    ix = ((pos.x - im.panner.ix) *
+		      im.panner.xblock / im.panner.zoom) + im.panner.x0;
+	    iy = ((dlayer.canvas.height - (pos.y + im.panner.iy)) *
+		      im.panner.yblock / im.panner.zoom) + im.panner.y0;
+	    // pan the image
+	    try{
+		// avoid triggering a re-pan
+		im.display.pluginInstances.JS9Panner.status = "inactive";
+		// pan image
+		im.setPan(ix, iy);
+	    }
+	    catch(e){JS9.log("couldn't pan image", e);}
+	    finally{im.display.pluginInstances.JS9Panner.status = "active";}
+	}
+    });
+    // display current image in panner
+    if( this.display.image ){
+	JS9.Panner.display(this.display.image);
+    }
+};
+
+// create panner (RGB) image from scaled colorCells
+// sort of from: tksao1.0/frame/truecolor.c, but not really
+// part of panner plugin
+JS9.Panner.create = function(im){
+    var panDisp, panner, sect, img;
+    var x0, y0, xblock, yblock;
+    var i, j, ii, jj, kk;
+    var ioff, ooff;
+    var width, height;
+    // sanity check
+    if( !im || !im.raw ||
+	!im.display.pluginInstances.JS9Panner ){
+	return;
+    }
+    // add panner object to image, if necessary
+    if( !im.panner ){
+	im.panner = {};
+    }
+    // init zoom factor, if necessary
+    if( !im.panner.zoom ){
+	im.panner.zoom = 1;
+    }
+    // convenience variables
+    panDisp = im.display.pluginInstances.JS9Panner;
+    panner = im.panner;
+    sect = im.rgb.sect;
+    // size image
+    width = Math.min(im.raw.width, panDisp.width);
+    height = Math.min(im.raw.height, panDisp.height);
+    // block RGB image to fit into panner window
+    panner.xblock = im.raw.width / width;
+    panner.yblock = im.raw.height / height;
+    if( panner.xblock > panner.yblock ){
+	height = Math.floor(height / panner.xblock * panner.yblock + 0.5);
+	panner.yblock = panner.xblock;
+    } else if( panner.yblock > panner.xblock ){
+	width = Math.floor(width / panner.yblock * panner.xblock + 0.5);
+	panner.xblock = panner.yblock;
+    }
+    // create an RGB image the same size as the raw data
+    img = im.display.context.createImageData(width,height);
+    // calculate block factors and starting points based on zoom and block
+    if( panner.zoom === 1 ){
+	xblock = panner.xblock;
+	yblock = panner.yblock;
+	x0 = 0;
+	y0 = 0;
+    } else {
+	xblock = panner.xblock / panner.zoom;
+	yblock = panner.yblock / panner.zoom;
+	// x0, y0 is the corner of the section of the image we can display in
+	// the panner (we can't display the whole image if we are zoomed).
+	x0 = Math.max(0, ((sect.x0 + sect.x1) - (width  * xblock)) / 2);
+	y0 = Math.max(0, ((sect.y0 + sect.y1) - (height * yblock)) / 2);
+    }
+    // save lower limits for display
+    panner.x0 = x0;
+    panner.y0 = y0;
+    // save as panner image
+    panner.img = img;
+    panner.ix = 0;
+    panner.iy = 0;
+    if( im.rgbFile ){
+	// for a static RGB file, access the RGB data directly
+	for(j=0; j<height; j++){
+	    jj = Math.floor(y0 + (j * yblock)) * im.offscreen.img.width;
+	    kk = j * width;
+	    for(i=0; i<width; i++){
+		ii = Math.floor(x0 + (i * xblock));
+		ioff = (ii + jj) * 4;
+		ooff = (kk + i) * 4;
+		img.data[ooff]   = im.offscreen.img.data[ioff];
+		img.data[ooff+1] = im.offscreen.img.data[ioff+1];
+		img.data[ooff+2] = im.offscreen.img.data[ioff+2];
+		img.data[ooff+3] = 255;
+	    }
+	}
+	return im;
+    }
+    // index into scaled data using previously calc'ed data value to get RGB
+    for(j=0; j<height; j++){
+	jj = Math.floor(y0 + ((height-j-1) * yblock)) * im.raw.width;
+	kk = j * width;
+	for(i=0; i<width; i++){
+	    ii = Math.floor(x0 + (i * xblock));
+	    ioff = im.colorData[ii + jj];
+	    ooff = (kk + i) * 4;
+	    if( im.psColors[ioff] ){
+		img.data[ooff]   = im.psColors[ioff][0];
+		img.data[ooff+1] = im.psColors[ioff][1];
+		img.data[ooff+2] = im.psColors[ioff][2];
+		img.data[ooff+3] = 255;
+	    }
+	}
+    }
+    return im;
+};
+
+// display the image on the panner canvas
+JS9.Panner.display = function(im){
+    var panDisp, panner, sect, tblkx, tblky;
+    var obj, nx, ny, nwidth, nheight;
+    var FUDGE = 1;
+    // sanity check
+    // only display if we have a panner present
+    if( !im || !im.display.pluginInstances.JS9Panner ||
+       (im.display.pluginInstances.JS9Panner.status !== "active") ){
+	return;
+    }
+    // always remake make panner image (might be zooming, for example)
+    JS9.Panner.create(im);
+    // convenience variables
+    panner = im.panner;
+    panDisp = im.display.pluginInstances.JS9Panner;
+    sect = im.rgb.sect;
+    // we're done if there is no panner image
+    if( !panner.img ){
+	return;
+    }
+    // offsets into display
+    if( panner.img.width < panDisp.canvas.width ){
+	panner.ix = Math.floor((panDisp.canvas.width - panner.img.width)/2);
+    }
+    if( panner.img.height < panDisp.canvas.height ){
+        panner.iy = Math.floor((panDisp.canvas.height - panner.img.height)/2);
+    }
+    // clear first
+    panDisp.context.clear();
+    // draw the image into the context
+    panDisp.context.putImageData(panner.img, panner.ix, panner.iy);
+    // display panner rectangle
+    // convenience variables
+    tblkx = panner.zoom / panner.xblock;
+    tblky = panner.zoom / panner.yblock;
+    // size of rectangle
+    // nwidth = sect.width * tblkx / sect.zoom * bin;
+    // nheight = sect.height * tblky / sect.zoom * bin;
+    nwidth = sect.width * tblkx / sect.zoom;
+    nheight = sect.height * tblky / sect.zoom;
+    // position of the rectangle
+    nx = (sect.x0 - panner.x0) * tblkx + panner.ix;
+    ny = (panDisp.height - 1) - ((sect.y1 - panner.y0) * tblky + panner.iy);
+    // why is the fudge needed???
+    nx  += FUDGE;
+    ny  += FUDGE;
+    // convert to center pos
+    nx += nwidth / 2;
+    ny += nheight / 2;
+    // nice integer values
+    nx = Math.floor(nx);
+    ny = Math.floor(ny);
+    nwidth = Math.floor(nwidth);
+    nheight = Math.floor(nheight);
+    obj = {left: nx, top: ny, width: nwidth, height: nheight};
+    // create the box
+    if( !im.panner.boxid ){
+	im.panner.boxid = im.addShapes("panner", "box", obj);
+    } else {
+	im.changeShapes("panner", im.panner.boxid, obj);
+    }
+    return im;
+};
+
+// zoom the rectangle inside the panner (RGB) image
+JS9.Panner.zoom = function(im, zval){
+    var panDisp, panner, ozoom, nzoom;
+    // sanity check
+    if( !im || !im.panner || !im.display.pluginInstances.JS9Panner ){
+	return;
+    }
+    panner = im.panner;
+    panDisp = im.display.pluginInstances.JS9Panner;
+    // get old zoom
+    ozoom = panner.zoom;
+    // determine new zoom
+    switch(zval.charAt(0)){
+    case "*":
+    case "x":
+    case "X":
+	nzoom = Math.min(Math.min(panDisp.width, panDisp.height),
+			 ozoom * parseFloat(zval.slice(1)));
+	break;
+    case "/":
+	nzoom = Math.max(1, ozoom / parseFloat(zval.slice(1)));
+	break;
+    default:
+	nzoom = parseFloat(zval);
+	break;
+    }
+    // sanity check
+    if( !nzoom || (nzoom < 1) ){
+	nzoom = 1;
+    }
+    panner.zoom = nzoom;
+    // redisplay the panner
+    JS9.Panner.display(im);
+    return im;
+};
+
+// clear the panner
+JS9.Panner.clear = function(im){
+    var panner = im.display.pluginInstances.JS9Panner;
+    if( panner && (im === im.display.image) ){
+	panner.context.clear();
+	im.removeShapes("panner", "all");
+	im.panner.boxid = null;
+    }
+    return im;
+};
+
+// add this plugin into JS9
+JS9.RegisterPlugin(JS9.Panner.CLASS, JS9.Panner.NAME, JS9.Panner.init,
+		   {menuItem: "Panner",
+		    toolbarSeparate: false,
+		    toolbarHTML: JS9.Panner.HTML,
+		    onplugindisplay: JS9.Panner.display,
+		    onimagedisplay: JS9.Panner.display,
+		    onimageclose: JS9.Panner.clear,
+		    onimageclear: JS9.Panner.clear,
+		    winTitle: "Panner",
+		    winDims: [JS9.Panner.WIDTH,  JS9.Panner.HEIGHT],
+		    divArgs: [JS9.Panner.SWIDTH, JS9.Panner.SHEIGHT]});
 /*
  * JS9 preferences module (14 April 2015)
  */
 
 /*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
-/*global $, jQuery, JS9, sprintf, ddtabcontent */
+/*global $, JS9, sprintf, ddtabcontent */
 
 // To specify the JS9 display instance to link to a given PREFS div,
 // use the HTML5 dataset syntax: 
@@ -1806,12 +6512,12 @@ JS9.RegisterPlugin(JS9.Colorbar.CLASS, JS9.Colorbar.NAME, JS9.Colorbar.init,
 JS9.Prefs = {};
 JS9.Prefs.CLASS = "JS9";        // class of plugins (1st part of div class)
 JS9.Prefs.NAME = "Preferences"; // name of this plugin (2nd part of div class)
-JS9.Prefs.WIDTH =  630;         // default width of window
-JS9.Prefs.HEIGHT = 250;	        // default height of window
+JS9.Prefs.WIDTH =  750;         // default width of window
+JS9.Prefs.HEIGHT = 400;	        // default height of window
 
 JS9.Prefs.imagesSchema = {
     "title": "Image Preferences",
-    "description": "preferences for each JS9 image",
+    "description": "Preferences for each displayed image",
     "properties": {
 	"colormap": {
 	    "type": "string",
@@ -1861,17 +6567,9 @@ JS9.Prefs.imagesSchema = {
 	    "type": "string",
 	    "helper": "default logical coordinate system"
 	},
-	"alpha": {
+	"opacity": {
 	    "type": "number",
-	    "helper": "alpha for images"
-	},
-	"alpha1": {
-	    "type": "number",
-	    "helper": "alpha for masked pixels"
-	},
-	"alpha2": {
-	    "type": "number",
-	    "helper": "alpha for unmasked pixels"
+	    "helper": "opacity for images (0.0 to 1.0)"
 	},
 	"zoom": {
 	    "type": "number",
@@ -1903,7 +6601,7 @@ JS9.Prefs.imagesSchema = {
     
 JS9.Prefs.regionsSchema = {
     "title": "Region Preferences",
-    "description": "preferences for each JS9 region",
+    "description": "Preferences for each displayed region",
     "type": "object",
     "properties": {
 	"iradius": {
@@ -1988,46 +6686,151 @@ JS9.Prefs.regionsSchema = {
 // schema for each source
 JS9.Prefs.fitsSchema = {
     "title": "FITS Preferences",
-    "description": "FITS preferences in JS9",
+    "description": "Preferences for processing FITS files",
     "properties": {
 	"extlist": {
 	    "type": "string",
-	    "helper": "default binary table extensions for drag/drop"
+	    "helper": "default binary table extensions"
 	},
 	"xdim": {
 	    "type": "string",
-	    "helper": "x dimension of extracted image"
+	    "helper": "x dim of image section from table"
 	},
 	"ydim": {
 	    "type": "string",
-	    "helper": "y dimension of extracted image"
+	    "helper": "y dim of image section from table"
 	},
+	"bin": {
+	    "type": "string",
+	    "helper": "bin factor for tables"
+	},
+	"ixdim": {
+	    "type": "string",
+	    "helper": "x dim of image section from image"
+	},
+	"iydim": {
+	    "type": "string",
+	    "helper": "y dim of image section from table"
+	},
+	"ibin": {
+	    "type": "string",
+	    "helper": "bin factor for images"
+	},
+	"clear": {
+	    "type": "string",
+	    "helper": "clear image's virtual file memory"
+	}
+    }
+};
+
+// catalogs schema
+JS9.Prefs.catalogsSchema = {
+    "title": "Catalogs Preferences",
+    "description": "Preferences for loading tab-delimited catalogs",
+    "properties": {
+	"ras": {
+	    "type": "mobject",
+	    "helper": "RA patterns to look for in table"
+	},
+	"decs": {
+	    "type": "mobject",
+	    "helper": "Dec patterns to look for in table"
+	},
+	"wcssys": {
+	    "type": "string",
+	    "helper": "wcs system of catalog"
+	},
+	"shape": {
+	    "type": "string",
+	    "helper": "shape of objects"
+	},
+	"color": {
+	    "type": "string",
+	    "helper": "color of objects"
+	},
+	"width": {
+	    "type": "number",
+	    "helper": "width of box objects"
+	},
+	"height": {
+	    "type": "number",
+	    "helper": "height of box objects"
+	},
+	"radius": {
+	    "type": "number",
+	    "helper": "radius of circle objects"
+	},
+	"r1": {
+	    "type": "number",
+	    "helper": "r1 of ellipse objects"
+	},
+	"r2": {
+	    "type": "number",
+	    "helper": "r2 of ellipse objects"
+	},
+	"tooltip": {
+	    "type": "string",
+	    "helper": "tooltip format for objects"
+	},
+	"skip": {
+	    "type": "string",
+	    "helper": "comment character in table"
+	}
+    }
+};
+
+// display schema for the page
+JS9.Prefs.displaysSchema = {
+    "title": "Display Preferences",
+    "description": "Preferences for each JS9 display in this page",
+    "properties": {
+	"topColormaps": {
+	    "type": "mobject",
+	    "helper": "array of top-level colormaps"
+	},
+	"infoBox": {
+	    "type": "mobject",
+	    "helper": "array of infoBox items to display"
+	},
+	"mouseActions": {
+	    "type": "mobject",
+	    "helper": "array of mouse actions"
+	},
+	"touchActions": {
+	    "type": "mobject",
+	    "helper": "array of touch actions"
+	},
+	"keyboardActions": {
+	    "type": "mobject",
+	    "helper": "object containing keyboard actions"
+	},
+	"mousetouchZoom": {
+	    "type": "boolean",
+	    "helper": "scroll/pinch to zoom?"
+	},
+	"fits2fits": {
+	    "type": "string",
+	    "helper": "make rep file?: true,false,size>N"
+	},
+	"fits2png": {
+	    "type": "boolean",
+	    "helper": "convert FITS to PNG rep files?"
+	}
     }
 };
 
 // source object for preferences
 JS9.Prefs.sources = [
-    {name: "images",  schema: JS9.Prefs.imagesSchema},
-    {name: "regions", schema: JS9.Prefs.regionsSchema},
-    {name: "fits",    schema: JS9.Prefs.fitsSchema}
+    {name: "images",   schema: JS9.Prefs.imagesSchema},
+    {name: "regions",  schema: JS9.Prefs.regionsSchema},
+    {name: "fits",     schema: JS9.Prefs.fitsSchema},
+    {name: "catalogs", schema: JS9.Prefs.catalogsSchema},
+    {name: "displays", schema: JS9.Prefs.displaysSchema}
 ];
 
 // init preference plugin
-JS9.Prefs.init = function(width, height){
+JS9.Prefs.init = function(){
     var i, s, obj, key, props, sources, source, id, pid, html, prompt;
-    // set width and height on div
-    this.width = this.divjq.attr("data-width");
-    if( !this.width  ){
-	this.width  = width  || JS9.Prefs.WIDTH;
-    }
-    this.divjq.css("width", this.width);
-    this.width = parseInt(this.divjq.css("width"), 10);
-    this.height = this.divjq.attr("data-height");
-    if( !this.height ){
-	this.height = height || JS9.Prefs.HEIGHT;
-    }
-    this.divjq.css("height", this.height);
-    this.height = parseInt(this.divjq.css("height"), 10);
     // create the div containing one tab for each of the sources
     sources = JS9.Prefs.sources;
     pid = this.id + 'prefsTabs';
@@ -2042,30 +6845,61 @@ JS9.Prefs.init = function(width, height){
 			id + "Div", source.name);
     }
     html += "</ul>";
-    html += "<br style='clear:left'/></div></div><p>\n";
+    html += "<br style='clear:left'></div></div><p>\n";
     // create each param form (displayed by clicking each tab)
     for(i=0; i<sources.length; i++){
 	source = sources[i];
 	id = this.id + JS9.Prefs.CLASS + JS9.Prefs.NAME + source.name;
 	// source-specific pre-processing
 	switch( source.name ){
-	case "fits":
-	    // make up "nicer" option values from raw object
-	    source.data = {extlist: JS9.fits.options.extlist,
-			   xdim: JS9.fits.options.table.nx, 
-			   ydim: JS9.fits.options.table.ny};
+	case "images":
+	    source.data = JS9.imageOpts;
 	    break;
 	case "regions":
 	    source.data = JS9.Regions.opts;
 	    break;
-	case "images":
-	    source.data = JS9.imageOpts;
+	case "fits":
+	    // make up "nicer" option values from raw object
+	    source.data = {extlist: JS9.fits.options.extlist,
+			   xdim: JS9.fits.options.table.xdim,
+			   ydim: JS9.fits.options.table.ydim,
+			   bin: JS9.fits.options.table.bin,
+			   ixdim: JS9.fits.options.image.xdim,
+			   iydim: JS9.fits.options.image.ydim,
+			   ibin: JS9.fits.options.image.bin,
+			   clear: JS9.globalOpts.clearImageMemory};
+	    break;
+	case "catalogs":
+	    source.data = {ras: JS9.globalOpts.catalogs.ras,
+			   decs: JS9.globalOpts.catalogs.decs,
+			   wcssys: JS9.globalOpts.catalogs.wcssys,
+			   shape: JS9.globalOpts.catalogs.shape,
+			   color: JS9.globalOpts.catalogs.color,
+			   width: JS9.globalOpts.catalogs.width,
+			   height: JS9.globalOpts.catalogs.height,
+			   radius: JS9.globalOpts.catalogs.radius,
+			   r1: JS9.globalOpts.catalogs.r1,
+			   r2: JS9.globalOpts.catalogs.r2,
+			   tooltip: JS9.globalOpts.catalogs.tooltip,
+			   skip: JS9.globalOpts.catalogs.skip};
+	    break;
+	case "displays":
+	    source.data = {fits2png: JS9.globalOpts.fits2png,
+			   fits2fits: JS9.globalOpts.fits2fits,
+			   topColormaps: JS9.globalOpts.topColormaps,
+			   mouseActions: JS9.globalOpts.mouseActions,
+			   touchActions: JS9.globalOpts.touchActions,
+			   keyboardActions: JS9.globalOpts.keyboardActions,
+			   mousetouchZoom: JS9.globalOpts.mousetouchZoom,
+			   infoBox: JS9.globalOpts.infoBox};
 	    break;
 	default:
 	    break;
 	}
 	html += sprintf("<div id='%s' class='tabcontent'>", id + "Div");
-	html += sprintf("<form id='%s' class='js9AnalysisForm' style='max-height: %spx; overflow: scroll'>", id + "Form", this.height-90);
+	html += sprintf("<form id='%s' class='js9AnalysisForm' style='max-height: %spx; overflow: hidden'>", id + "Form", this.height-90);
+	html += sprintf("<center><b>%s</b></center><p>",
+			source.schema.description);
 	props = source.schema.properties;
 	for( key in props ){
 	    if( props.hasOwnProperty(key) ){
@@ -2078,15 +6912,23 @@ JS9.Prefs.init = function(width, height){
 		    } else {
 			s = "";
 		    }
-		    html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2'><input type='checkbox' name='%s' value='true' %s></span><span class='column_R3L'>%s</span></div>", prompt, key, s, obj.helper);
+		    html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2'><input type='checkbox' name='%s' value='true' %s></span><span class='column_R4l'>%s</span></div>", prompt, key, s, obj.helper);
 		    break;
 		default:
 		    if( typeof source.data[key] === "object" ){
-			s = JSON.stringify(source.data[key]);
+			if( obj.type === "mobject" ){
+			    s = JSON.stringify(source.data[key], null, 2);
+			} else {
+			    s = JSON.stringify(source.data[key]);
+			}
 		    } else {
 			s = source.data[key];
 		    }
-		    html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2'><input type='text' name='%s' class='text_R' value='%s'/></span><span class='column_R3L'>%s</span></div>", prompt, key, s, obj.helper);
+		    if( obj.type === "mobject" ){
+			html += sprintf("<div class='linegroup' style='height:64px'><span class='column_R1'><b>%s</b></span><span class='column_R2l'><textarea name='%s' class='text_R' rows='5' style='overflow-x: hidden; resize: none'>%s</textarea></span><span class='column_R4l'>%s</span></div>", prompt, key, s, obj.helper);
+		    } else {
+			html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2l'><input type='text' name='%s' class='text_R' value='%s'></span><span class='column_R4l'>%s</span></div>", prompt, key, s, obj.helper);
+		    }
 		    break;
 		}
 	    }
@@ -2105,6 +6947,8 @@ JS9.Prefs.init = function(width, height){
 	html += "</form>";
 	html += "</div>";
     }
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
     // set the html for this div
     this.divjq.html(html);
     // for each source, set data values that we will need in button callbacks
@@ -2178,58 +7022,55 @@ JS9.Prefs.deleteForm = function(){
 };
 
 // process new preferences in the preference form
+// eslint-disable-next-line no-unused-vars
 JS9.Prefs.processForm = function(source, arr, display, winid){
     var i, j, key , val, obj, rlayer;
     var len = arr.length;
     // source-specific pre-processing
     switch( source.name ){
-    case "fits":
-	obj = JS9.fits.options;
+    case "images":
+	obj = JS9.imageOpts;
 	break;
     case "regions":
 	obj = JS9.Regions.opts;
 	break;
-    case "images":
-	obj = JS9.imageOpts;
+    case "fits":
+	obj = JS9.fits.options;
+	break;
+    case "catalogs":
+	obj = JS9.globalOpts.catalogs;
+	break;
+    case "displays":
+	obj = JS9.globalOpts;
 	break;
     }
     for(i=0; i<len; i++){
 	key = arr[i].name;
 	val = arr[i].value;
+	if( val === "true" ){
+	    val = true;
+	}
+	if( val === "false" ){
+	    val = false;
+	}
 	switch( typeof obj[key] ){
 	case "boolean":
-	    if( val === "true" ){
-		val = true;
-	    }
-	    if( val === "false" ){
-		val = false;
-	    }
 	    break;
 	case "number":
 	    val = parseFloat(val);
 	    break;
 	case "object":
-	    val = JSON.parse(val);
+	    try{ val = JSON.parse(val); }
+	    catch(e){ JS9.error("invalid JSON (see jsonlint.com): "+val, e); }
 	    break;
 	default:
 	    break;
 	}
 	if( obj[key] !== val ){
 	    switch( source.name ){
-	    case "fits":
-	        // put our "nicer" option values back into raw object
-	        // note that the values are still strings
-	        switch(key){
- 	        case "xdim":
-		    obj.table.nx = parseFloat(val);
-	            break;
-	        case "ydim":
-		    obj.table.ny = parseFloat(val);
-	            break;
-	        default:
-	            obj[key] = val;
-	            break;
-	        }
+	    case "images":
+		// set new option value
+	        obj[key] = val;
 	        break;
 	    case "regions":
 		// set new option value
@@ -2241,6 +7082,57 @@ JS9.Prefs.processForm = function(source, arr, display, winid){
 			rlayer.opts[key] = val;
 		    }
 		}
+		break;
+	    case "fits":
+	        // put our "nicer" option values back into raw object
+	        // note that the values are still strings
+	        switch(key){
+ 	        case "xdim":
+		    obj.table.xdim = Math.floor(parseFloat(val));
+	            break;
+	        case "ydim":
+		    obj.table.ydim = Math.floor(parseFloat(val));
+	            break;
+	        case "bin":
+		    obj.table.bin = Math.floor(parseFloat(val));
+	            break;
+	        case "ixdim":
+		    obj.image.xdim = Math.floor(parseFloat(val));
+	            break;
+	        case "iydim":
+		    obj.image.ydim = Math.floor(parseFloat(val));
+	            break;
+	        case "ibin":
+		    obj.image.bin = Math.floor(parseFloat(val));
+	            break;
+		case "clear":
+		    JS9.globalOpts.clearImageMemory = val;
+		    break;
+	        default:
+	            obj[key] = val;
+	            break;
+	        }
+		source.data[key] = val;
+	        break;
+	    case "catalogs":
+	        switch(key){
+ 	        case "skip":
+		    // add back blank lines
+		    obj[key] = val + "\n";
+		    break;
+		default:
+	            obj[key] = val;
+		    break;
+		}
+		break;
+	    case "displays":
+	        // set new option value
+	        obj[key] = val;
+		// change option value in this display as well
+		for(j=0; j<JS9.displays.length; j++){
+		    JS9.displays[j][key] = val;
+		}
+		source.data[key] = val;
 		break;
 	    default:
 		// set new option value
@@ -2255,7 +7147,8 @@ JS9.Prefs.processForm = function(source, arr, display, winid){
 JS9.RegisterPlugin(JS9.Prefs.CLASS, JS9.Prefs.NAME, JS9.Prefs.init,
 		   {menuItem: "Preferences",
 		    help: "help/prefs.html",
-		    winTitle: "JS9 User Preferences",
+		    winTitle: "User Preferences",
+		    winResize: true,
 		    winDims: [JS9.Prefs.WIDTH, JS9.Prefs.HEIGHT]});
 require=(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({"./imexam":[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, bitwise: true */
@@ -2570,8 +7463,8 @@ ndops.rms = typed(function (a) {
     var squ = 0;
     // ----
     if( !isNaN(a) ){
-        sum +=   a;
-	    squ += a*a;
+	sum +=   a;
+	squ += a*a;
     }
     // ----
 
@@ -2641,7 +7534,7 @@ imops._rproj = typed(function(a, cx, cy, radius, length) {
     // ----
 	var d = Math.sqrt((iY-cy)*(iY-cy) + (iX-cx)*(iX-cx));
 
-	if ( (d <= r) && !isNaN(a) ) { 
+	if ( (d <= r) && !isNaN(a) ) {
 	    rad[i] = d;
 	    val[i] = a;
 
@@ -2901,7 +7794,7 @@ exports.typed    = ndops;
 exports.imops    = imops;
 
 
-},{"./mask.js":1,"./template":9,"typed-array-function":2,"typed-array-ops":3,"typed-array-rotate":4,"typed-numeric-uncmin":7}],1:[function(require,module,exports){
+},{"./mask.js":1,"./template":12,"typed-array-function":4,"typed-array-ops":5,"typed-array-rotate":8,"typed-numeric-uncmin":10}],1:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
 /*globals $ */ 
 
@@ -2974,7 +7867,410 @@ exports.imops    = imops;
 }());
 
 
-},{"./raster":8}],2:[function(require,module,exports){
+},{"./raster":11}],2:[function(require,module,exports){
+"use strict"
+
+var iota = require("iota-array")
+
+var arrayMethods = [
+  "concat",
+  "join",
+  "slice",
+  "toString",
+  "indexOf",
+  "lastIndexOf",
+  "forEach",
+  "every",
+  "some",
+  "filter",
+  "map",
+  "reduce",
+  "reduceRight"
+]
+
+function compare1st(a, b) {
+  return a[0] - b[0]
+}
+
+function order() {
+  var stride = this.stride
+  var terms = new Array(stride.length)
+  var i
+  for(i=0; i<terms.length; ++i) {
+    terms[i] = [Math.abs(stride[i]), i]
+  }
+  terms.sort(compare1st)
+  var result = new Array(terms.length)
+  for(i=0; i<result.length; ++i) {
+    result[i] = terms[i][1]
+  }
+  return result
+}
+
+function compileConstructor(dtype, dimension) {
+  var className = ["View", dimension, "d", dtype].join("")
+  if(dimension < 0) {
+    className = "View_Nil" + dtype
+  }
+  var useGetters = (dtype === "generic")
+  
+  if(dimension === -1) {
+    //Special case for trivial arrays
+    var code = 
+      "function "+className+"(a){this.data=a;};\
+var proto="+className+".prototype;\
+proto.dtype='"+dtype+"';\
+proto.index=function(){return -1};\
+proto.size=0;\
+proto.dimension=-1;\
+proto.shape=proto.stride=proto.order=[];\
+proto.lo=proto.hi=proto.transpose=proto.step=\
+function(){return new "+className+"(this.data);};\
+proto.get=proto.set=function(){};\
+proto.pick=function(){return null};\
+return function construct_"+className+"(a){return new "+className+"(a);}"
+    var procedure = new Function(code)
+    return procedure()
+  } else if(dimension === 0) {
+    //Special case for 0d arrays
+    var code =
+      "function "+className+"(a,d) {\
+this.data = a;\
+this.offset = d\
+};\
+var proto="+className+".prototype;\
+proto.dtype='"+dtype+"';\
+proto.index=function(){return this.offset};\
+proto.dimension=0;\
+proto.size=1;\
+proto.shape=\
+proto.stride=\
+proto.order=[];\
+proto.lo=\
+proto.hi=\
+proto.transpose=\
+proto.step=function "+className+"_copy() {\
+return new "+className+"(this.data,this.offset)\
+};\
+proto.pick=function "+className+"_pick(){\
+return TrivialArray(this.data);\
+};\
+proto.valueOf=proto.get=function "+className+"_get(){\
+return "+(useGetters ? "this.data.get(this.offset)" : "this.data[this.offset]")+
+"};\
+proto.set=function "+className+"_set(v){\
+return "+(useGetters ? "this.data.set(this.offset,v)" : "this.data[this.offset]=v")+"\
+};\
+return function construct_"+className+"(a,b,c,d){return new "+className+"(a,d)}"
+    var procedure = new Function("TrivialArray", code)
+    return procedure(CACHED_CONSTRUCTORS[dtype][0])
+  }
+
+  var code = ["'use strict'"]
+    
+  //Create constructor for view
+  var indices = iota(dimension)
+  var args = indices.map(function(i) { return "i"+i })
+  var index_str = "this.offset+" + indices.map(function(i) {
+        return ["this._stride", i, "*i",i].join("")
+      }).join("+")
+  code.push("function "+className+"(a,"+
+    indices.map(function(i) {
+      return "b"+i
+    }).join(",")+","+
+    indices.map(function(i) {
+      return "c"+i
+    }).join(",")+",d){this.data=a")
+  for(var i=0; i<dimension; ++i) {
+    code.push("this._shape"+i+"=b"+i+"|0")
+  }
+  for(var i=0; i<dimension; ++i) {
+    code.push("this._stride"+i+"=c"+i+"|0")
+  }
+  code.push("this.offset=d|0}",
+    "var proto="+className+".prototype",
+    "proto.dtype='"+dtype+"'",
+    "proto.dimension="+dimension)
+  
+  //view.stride and view.shape
+  var strideClassName = "VStride" + dimension + "d" + dtype
+  var shapeClassName = "VShape" + dimension + "d" + dtype
+  var props = {"stride":strideClassName, "shape":shapeClassName}
+  for(var prop in props) {
+    var arrayName = props[prop]
+    code.push(
+      "function " + arrayName + "(v) {this._v=v} var aproto=" + arrayName + ".prototype",
+      "aproto.length="+dimension)
+    
+    var array_elements = []
+    for(var i=0; i<dimension; ++i) {
+      array_elements.push(["this._v._", prop, i].join(""))
+    }
+    code.push(
+      "aproto.toJSON=function " + arrayName + "_toJSON(){return [" + array_elements.join(",") + "]}",
+      "aproto.valueOf=aproto.toString=function " + arrayName + "_toString(){return [" + array_elements.join(",") + "].join()}")
+    
+    for(var i=0; i<dimension; ++i) {
+      code.push(["Object.defineProperty(aproto,", i, ",{get:function(){return this._v._", prop, i, "},set:function(v){return this._v._", prop, i, "=v|0},enumerable:true})"].join(""))
+    }
+    for(var i=0; i<arrayMethods.length; ++i) {
+      if(arrayMethods[i] in Array.prototype) {
+        code.push(["aproto.", arrayMethods[i], "=Array.prototype.", arrayMethods[i]].join(""))
+      }
+    }
+    code.push(["Object.defineProperty(proto,'",prop,"',{get:function ", arrayName, "_get(){return new ", arrayName, "(this)},set: function ", arrayName, "_set(v){"].join(""))
+    for(var i=0; i<dimension; ++i) {
+      code.push(["this._", prop, i, "=v[", i, "]|0"].join(""))
+    }
+    code.push("return v}})")
+  }
+  
+  //view.size:
+  code.push(["Object.defineProperty(proto,'size',{get:function ",className,"_size(){\
+return ", indices.map(function(i) { return ["this._shape", i].join("") }).join("*"),
+"}})"].join(""))
+
+  //view.order:
+  if(dimension === 1) {
+    code.push("proto.order=[0]")
+  } else {
+    code.push("Object.defineProperty(proto,'order',{get:")
+    if(dimension < 4) {
+      code.push(["function ",className,"_order(){"].join(""))
+      if(dimension === 2) {
+        code.push("return (Math.abs(this._stride0)>Math.abs(this._stride1))?[1,0]:[0,1]}})")
+      } else if(dimension === 3) {
+        code.push(
+"var s0=Math.abs(this._stride0),s1=Math.abs(this._stride1),s2=Math.abs(this._stride2);\
+if(s0>s1){\
+if(s1>s2){\
+return [2,1,0];\
+}else if(s0>s2){\
+return [1,2,0];\
+}else{\
+return [1,0,2];\
+}\
+}else if(s0>s2){\
+return [2,0,1];\
+}else if(s2>s1){\
+return [0,1,2];\
+}else{\
+return [0,2,1];\
+}}})")
+      }
+    } else {
+      code.push("ORDER})")
+    }
+  }
+  
+  //view.set(i0, ..., v):
+  code.push([
+"proto.set=function ",className,"_set(", args.join(","), ",v){"].join(""))
+  if(useGetters) {
+    code.push(["return this.data.set(", index_str, ",v)}"].join(""))
+  } else {
+    code.push(["return this.data[", index_str, "]=v}"].join(""))
+  }
+  
+  //view.get(i0, ...):
+  code.push(["proto.get=function ",className,"_get(", args.join(","), "){"].join(""))
+  if(useGetters) {
+    code.push(["return this.data.get(", index_str, ")}"].join(""))
+  } else {
+    code.push(["return this.data[", index_str, "]}"].join(""))
+  }
+  
+  //view.index:
+  code.push([
+    "proto.index=function ",
+      className,
+      "_index(", args.join(), "){return ", 
+      index_str, "}"].join(""))
+
+  //view.hi():
+  code.push(["proto.hi=function ",className,"_hi(",args.join(","),"){return new ", className, "(this.data,",
+    indices.map(function(i) {
+      return ["(typeof i",i,"!=='number'||i",i,"<0)?this._shape", i, ":i", i,"|0"].join("")
+    }).join(","), ",",
+    indices.map(function(i) {
+      return "this._stride"+i
+    }).join(","), ",this.offset)}"].join(""))
+  
+  //view.lo():
+  var a_vars = indices.map(function(i) { return "a"+i+"=this._shape"+i })
+  var c_vars = indices.map(function(i) { return "c"+i+"=this._stride"+i })
+  code.push(["proto.lo=function ",className,"_lo(",args.join(","),"){var b=this.offset,d=0,", a_vars.join(","), ",", c_vars.join(",")].join(""))
+  for(var i=0; i<dimension; ++i) {
+    code.push([
+"if(typeof i",i,"==='number'&&i",i,">=0){\
+d=i",i,"|0;\
+b+=c",i,"*d;\
+a",i,"-=d}"].join(""))
+  }
+  code.push(["return new ", className, "(this.data,",
+    indices.map(function(i) {
+      return "a"+i
+    }).join(","),",",
+    indices.map(function(i) {
+      return "c"+i
+    }).join(","), ",b)}"].join(""))
+  
+  //view.step():
+  code.push(["proto.step=function ",className,"_step(",args.join(","),"){var ",
+    indices.map(function(i) {
+      return "a"+i+"=this._shape"+i
+    }).join(","), ",",
+    indices.map(function(i) {
+      return "b"+i+"=this._stride"+i
+    }).join(","),",c=this.offset,d=0,ceil=Math.ceil"].join(""))
+  for(var i=0; i<dimension; ++i) {
+    code.push([
+"if(typeof i",i,"==='number'){\
+d=i",i,"|0;\
+if(d<0){\
+c+=b",i,"*(a",i,"-1);\
+a",i,"=ceil(-a",i,"/d)\
+}else{\
+a",i,"=ceil(a",i,"/d)\
+}\
+b",i,"*=d\
+}"].join(""))
+  }
+  code.push(["return new ", className, "(this.data,",
+    indices.map(function(i) {
+      return "a" + i
+    }).join(","), ",",
+    indices.map(function(i) {
+      return "b" + i
+    }).join(","), ",c)}"].join(""))
+  
+  //view.transpose():
+  var tShape = new Array(dimension)
+  var tStride = new Array(dimension)
+  for(var i=0; i<dimension; ++i) {
+    tShape[i] = ["a[i", i, "]"].join("")
+    tStride[i] = ["b[i", i, "]"].join("")
+  }
+  code.push(["proto.transpose=function ",className,"_transpose(",args,"){", 
+    args.map(function(n,idx) { return n + "=(" + n + "===undefined?" + idx + ":" + n + "|0)"}).join(";"),
+    ";var a=this.shape,b=this.stride;return new ", className, "(this.data,", tShape.join(","), ",", tStride.join(","), ",this.offset)}"].join(""))
+  
+  //view.pick():
+  code.push(["proto.pick=function ",className,"_pick(",args,"){var a=[],b=[],c=this.offset"].join(""))
+  for(var i=0; i<dimension; ++i) {
+    code.push(["if(typeof i",i,"==='number'&&i",i,">=0){c=(c+this._stride",i,"*i",i,")|0}else{a.push(this._shape",i,");b.push(this._stride",i,")}"].join(""))
+  }
+  code.push("var ctor=CTOR_LIST[a.length+1];return ctor(this.data,a,b,c)}")
+    
+  //Add return statement
+  code.push(["return function construct_",className,"(data,shape,stride,offset){return new ", className,"(data,",
+    indices.map(function(i) {
+      return "shape["+i+"]"
+    }).join(","), ",",
+    indices.map(function(i) {
+      return "stride["+i+"]"
+    }).join(","), ",offset)}"].join(""))
+
+  //Compile procedure
+  var procedure = new Function("CTOR_LIST", "ORDER", code.join("\n"))
+  return procedure(CACHED_CONSTRUCTORS[dtype], order)
+}
+
+function arrayDType(data) {
+  if(data instanceof Float64Array) {
+    return "float64";
+  } else if(data instanceof Float32Array) {
+    return "float32"
+  } else if(data instanceof Int32Array) {
+    return "int32"
+  } else if(data instanceof Uint32Array) {
+    return "uint32"
+  } else if(data instanceof Uint8Array) {
+    return "uint8"
+  } else if(data instanceof Uint16Array) {
+    return "uint16"
+  } else if(data instanceof Int16Array) {
+    return "int16"
+  } else if(data instanceof Int8Array) {
+    return "int8"
+  } else if(data instanceof Uint8ClampedArray) {
+    return "uint8_clamped"
+  } else if(data instanceof Array) {
+    return "array"
+  }
+  return "generic"
+}
+
+var CACHED_CONSTRUCTORS = {
+  "float32":[],
+  "float64":[],
+  "int8":[],
+  "int16":[],
+  "int32":[],
+  "uint8":[],
+  "uint16":[],
+  "uint32":[],
+  "array":[],
+  "uint8_clamped":[],
+  "generic":[]
+}
+
+;(function() {
+  for(var id in CACHED_CONSTRUCTORS) {
+    CACHED_CONSTRUCTORS[id].push(compileConstructor(id, -1))
+  }
+});
+
+function wrappedNDArrayCtor(data, shape, stride, offset) {
+  if(data === undefined) {
+    var ctor = CACHED_CONSTRUCTORS.array[0]
+    return ctor([])
+  } else if(typeof data === "number") {
+    data = [data]
+  }
+  if(shape === undefined) {
+    shape = [ data.length ]
+  }
+  var d = shape.length
+  if(stride === undefined) {
+    stride = new Array(d)
+    for(var i=d-1, sz=1; i>=0; --i) {
+      stride[i] = sz
+      sz *= shape[i]
+    }
+  }
+  if(offset === undefined) {
+    offset = 0
+    for(var i=0; i<d; ++i) {
+      if(stride[i] < 0) {
+        offset -= (shape[i]-1)*stride[i]
+      }
+    }
+  }
+  var dtype = arrayDType(data)
+  var ctor_list = CACHED_CONSTRUCTORS[dtype]
+  while(ctor_list.length <= d+1) {
+    ctor_list.push(compileConstructor(dtype, ctor_list.length-1))
+  }
+  var ctor = ctor_list[d+1]
+  return ctor(data, shape, stride, offset)
+}
+
+module.exports = wrappedNDArrayCtor
+
+},{"iota-array":3}],3:[function(require,module,exports){
+"use strict"
+
+function iota(n) {
+  var result = new Array(n)
+  for(var i=0; i<n; ++i) {
+    result[i] = i
+  }
+  return result
+}
+
+module.exports = iota
+},{}],4:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, evil: true, regexp: true, bitwise: true */
 /*jshint node: true, -W099: true, laxbreak:true, laxcomma:true, multistr:true, smarttabs:true */
 /*globals typed, Int8Array, Uint8Array, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array */ 
@@ -3367,9 +8663,7 @@ exports.imops    = imops;
     var size = typed(function (a) {
 	var prd = 1;
 	// ----
-    if( !isNaN(a) ){
 	    prd *= a;
-    }
 	// ----
 	return prd;
     });
@@ -3479,7 +8773,7 @@ exports.imops    = imops;
 }());
 
 
-},{"ndarray-nobuffer":11}],3:[function(require,module,exports){
+},{"ndarray-nobuffer":2}],5:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, evil: true, regexp: true */
 /*globals */ 
 
@@ -3657,18 +8951,14 @@ exports.imops    = imops;
     ops.sum  = typed(function (a) {
 	var sum = 0; 
 	// ----
-    if( !isNaN(a) ){
 	    sum += a;
-    }
 	// ----
 	return sum;
     });
     ops.prod = typed(function (a) {
 	var prd = 1;
 	// ----
-    if( !isNaN(a) ){
 	    prd *= a;
-    }
 	// ----
 	return prd;
     });
@@ -3692,9 +8982,7 @@ exports.imops    = imops;
     ops.norm2Squared = typed(function (a) {
 	var norm2 = 0;
 	// ----    
-    if( !isNaN(a) ){
 	    norm2 += a*a;
-    }
 	// ----    
 	return norm2;
     });
@@ -3709,33 +8997,118 @@ exports.imops    = imops;
 }());
  
 
-},{"typed-array-function":2}],4:[function(require,module,exports){
-/*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, bitwise: true */
+},{"typed-array-function":4}],6:[function(require,module,exports){
+"use strict"
 
-"use strict";
-
-var warp = require("typed-array-warp");
-
-
-function rotateImage(out, inp, theta, iX, iY, oX, oY) {
-  var c = Math.cos(theta);
-  var s = Math.sin(-theta);
-  iX = iX || inp.shape[0]/2.0;
-  iY = iY || inp.shape[1]/2.0;
-  oX = oX || out.shape[0]/2.0;
-  oY = oY || out.shape[1]/2.0;
-  var a = iX - c * oX + s * oY;
-  var b = iY - s * oX - c * oY;
-  warp(out, inp, function(y,x) {
-    y[0] = c * x[0] - s * x[1] + a;
-    y[1] = s * x[0] + c * x[1] + b;
-  });
-  return out;
+function interp1d(arr, x) {
+  var ix = Math.floor(x)
+    , fx = x - ix
+    , s0 = 0 <= ix   && ix   < arr.shape[0]
+    , s1 = 0 <= ix+1 && ix+1 < arr.shape[0]
+    , w0 = s0 ? +arr.get(ix)   : 0.0
+    , w1 = s1 ? +arr.get(ix+1) : 0.0
+  return (1.0-fx)*w0 + fx*w1
 }
 
-module.exports = rotateImage;
+function interp2d(arr, x, y) {
+  var ix = Math.floor(x)
+    , fx = x - ix
+    , s0 = 0 <= ix   && ix   < arr.shape[0]
+    , s1 = 0 <= ix+1 && ix+1 < arr.shape[0]
+    , iy = Math.floor(y)
+    , fy = y - iy
+    , t0 = 0 <= iy   && iy   < arr.shape[1]
+    , t1 = 0 <= iy+1 && iy+1 < arr.shape[1]
+    , w00 = s0&&t0 ? arr.get(ix  ,iy  ) : 0.0
+    , w01 = s0&&t1 ? arr.get(ix  ,iy+1) : 0.0
+    , w10 = s1&&t0 ? arr.get(ix+1,iy  ) : 0.0
+    , w11 = s1&&t1 ? arr.get(ix+1,iy+1) : 0.0
+  return (1.0-fy) * ((1.0-fx)*w00 + fx*w10) + fy * ((1.0-fx)*w01 + fx*w11)
+}
 
-},{"typed-array-warp":5}],5:[function(require,module,exports){
+function interp3d(arr, x, y, z) {
+  var ix = Math.floor(x)
+    , fx = x - ix
+    , s0 = 0 <= ix   && ix   < arr.shape[0]
+    , s1 = 0 <= ix+1 && ix+1 < arr.shape[0]
+    , iy = Math.floor(y)
+    , fy = y - iy
+    , t0 = 0 <= iy   && iy   < arr.shape[1]
+    , t1 = 0 <= iy+1 && iy+1 < arr.shape[1]
+    , iz = Math.floor(z)
+    , fz = z - iz
+    , u0 = 0 <= iz   && iz   < arr.shape[2]
+    , u1 = 0 <= iz+1 && iz+1 < arr.shape[2]
+    , w000 = s0&&t0&&u0 ? arr.get(ix,iy,iz)       : 0.0
+    , w010 = s0&&t1&&u0 ? arr.get(ix,iy+1,iz)     : 0.0
+    , w100 = s1&&t0&&u0 ? arr.get(ix+1,iy,iz)     : 0.0
+    , w110 = s1&&t1&&u0 ? arr.get(ix+1,iy+1,iz)   : 0.0
+    , w001 = s0&&t0&&u1 ? arr.get(ix,iy,iz+1)     : 0.0
+    , w011 = s0&&t1&&u1 ? arr.get(ix,iy+1,iz+1)   : 0.0
+    , w101 = s1&&t0&&u1 ? arr.get(ix+1,iy,iz+1)   : 0.0
+    , w111 = s1&&t1&&u1 ? arr.get(ix+1,iy+1,iz+1) : 0.0
+  return (1.0-fz) * ((1.0-fy) * ((1.0-fx)*w000 + fx*w100) + fy * ((1.0-fx)*w010 + fx*w110)) + fz * ((1.0-fy) * ((1.0-fx)*w001 + fx*w101) + fy * ((1.0-fx)*w011 + fx*w111))
+}
+
+function interpNd(arr) {
+  var d = arr.shape.length|0
+    , ix = new Array(d)
+    , fx = new Array(d)
+    , s0 = new Array(d)
+    , s1 = new Array(d)
+    , i, t
+  for(i=0; i<d; ++i) {
+    t = +arguments[i+1]
+    ix[i] = Math.floor(t)
+    fx[i] = t - ix[i]
+    s0[i] = (0 <= ix[i]   && ix[i]   < arr.shape[i])
+    s1[i] = (0 <= ix[i]+1 && ix[i]+1 < arr.shape[i])
+  }
+  var r = 0.0, j, w, idx
+i_loop:
+  for(i=0; i<(1<<d); ++i) {
+    w = 1.0
+    idx = arr.offset
+    for(j=0; j<d; ++j) {
+      if(i & (1<<j)) {
+        if(!s1[j]) {
+          continue i_loop
+        }
+        w *= fx[j]
+        idx += arr.stride[j] * (ix[j] + 1)
+      } else {
+        if(!s0[j]) {
+          continue i_loop
+        }
+        w *= 1.0 - fx[j]
+        idx += arr.stride[j] * ix[j]
+      }
+    }
+    r += w * arr.data[idx]
+  }
+  return r
+}
+
+function interpolate(arr, x, y, z) {
+  switch(arr.shape.length) {
+    case 0:
+      return 0.0
+    case 1:
+      return interp1d(arr, x)
+    case 2:
+      return interp2d(arr, x, y)
+    case 3:
+      return interp3d(arr, x, y, z)
+    default:
+      return interpNd.apply(undefined, arguments)
+  }
+}
+module.exports = interpolate
+module.exports.d1 = interp1d
+module.exports.d2 = interp2d
+module.exports.d3 = interp3d
+
+},{}],7:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, bitwise: true */
 
 "use strict";
@@ -3808,7 +9181,33 @@ module.exports = function warp(dest, src, func) {
   return dest;
 };
 
-},{"ndarray-linear-interpolate":10,"typed-array-function":2}],6:[function(require,module,exports){
+},{"ndarray-linear-interpolate":6,"typed-array-function":4}],8:[function(require,module,exports){
+/*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, bitwise: true */
+
+"use strict";
+
+var warp = require("typed-array-warp");
+
+
+function rotateImage(out, inp, theta, iX, iY, oX, oY) {
+  var c = Math.cos(theta);
+  var s = Math.sin(-theta);
+  iX = iX || inp.shape[0]/2.0;
+  iY = iY || inp.shape[1]/2.0;
+  oX = oX || out.shape[0]/2.0;
+  oY = oY || out.shape[1]/2.0;
+  var a = iX - c * oX + s * oY;
+  var b = iY - s * oX - c * oY;
+  warp(out, inp, function(y,x) {
+    y[0] = c * x[0] - s * x[1] + a;
+    y[1] = s * x[0] + c * x[1] + b;
+  });
+  return out;
+}
+
+module.exports = rotateImage;
+
+},{"typed-array-warp":7}],9:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, evil: true, regexp: true, bitwise: true */
 /*jshint node: true, -W099: true, laxbreak:true, laxcomma:true, multistr:true, smarttabs:true */
 /*globals */ 
@@ -3959,10 +9358,8 @@ numeric.dotMM = typed({ loops: false }, numeric.dotMM);
 numeric.diag  = typed({ loops: false }, numeric.diag);
 
 
-},{"typed-array-function":2}],7:[function(require,module,exports){
-/*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true, evil: true, regexp: true, bitwise: true, continue:true */
+},{"typed-array-function":4}],10:[function(require,module,exports){
 
-"use strict";
 
 var numeric =                         require("typed-array-function");
     numeric = numeric.extend(numeric, require("typed-array-ops"));
@@ -3972,13 +9369,13 @@ var numeric =                         require("typed-array-function");
 exports.gradient = function gradient(f,x) {
     var n = x.length;
     var f0 = f(x);
-    if(isNaN(f0)) { throw new Error('gradient: f(x) is a NaN!'); }
-    var i,x0 = numeric.clone(x),f1,f2, J = new [].constructor(n);
-    var errest,max = Math.max,eps = 1e-3,abs = Math.abs, min = Math.min;
-    var t0,t1,t2,it=0,d1,d2,N,h;
+    if(isNaN(f0)) throw new Error('gradient: f(x) is a NaN!');
+    var i,x0 = numeric.clone(x),f1,f2, J = Array(n);
+    var errest,roundoff,max = Math.max,eps = 1e-3,abs = Math.abs, min = Math.min;
+    var t0,t1,t2,it=0,d1,d2,N;
     for(i=0;i<n;i++) {
-        h = max(1e-6*f0,1e-8);
-        while(true) {
+        var h = max(1e-6*f0,1e-8);
+        while(1) {
             ++it;
             if(it>20) { throw new Error("Numerical gradient fails"); }
             x0[i] = x[i]+h;
@@ -3995,29 +9392,29 @@ exports.gradient = function gradient(f,x) {
             d2 = (f0-f2)/h;
             N = max(abs(J[i]),abs(f0),abs(f1),abs(f2),abs(t0),abs(t1),abs(t2),1e-8);
             errest = min(max(abs(d1-J[i]),abs(d2-J[i]),abs(d1-d2))/N,h/N);
-            if(errest>eps) { h/=16;
-	    } else { break; }
+            if(errest>eps) { h/=16; }
+            else break;
             }
     }
     return J;
-};
+}
 exports.uncmin = function uncmin(f,x0,tol,gradient,maxit,callback,options) {
     var grad = exports.gradient;
-    if(options  === undefined) { options = {}; }
-    if(tol      === undefined) { tol = 1e-8; }
-    if(gradient === undefined) { gradient = function(x) { return grad(f,x); }; }
-    if(maxit    === undefined) { maxit = 1000; }
+    if(typeof options === "undefined") { options = {}; }
+    if(typeof tol === "undefined") { tol = 1e-8; }
+    if(typeof gradient === "undefined") { gradient = function(x) { return grad(f,x); }; }
+    if(typeof maxit === "undefined") maxit = 1000;
     x0 = numeric.clone(x0);
     var n = x0.length;
     var f0 = f(x0),f1,df0;
-    if(isNaN(f0)) { throw new Error('uncmin: f(x0) is a NaN!'); }
+    if(isNaN(f0)) throw new Error('uncmin: f(x0) is a NaN!');
     var max = Math.max, norm2 = numeric.norm2;
     tol = max(tol,numeric.epsilon);
     var step,g0,g1,H1 = options.Hinv || numeric.identity(n);
     var dot = numeric.dot, sub = numeric.sub, add = numeric.add, ten = numeric.tensor, div = numeric.div, mul = numeric.mul;
 
     var all = numeric.all, isfinite = numeric.isFinite, neg = numeric.neg;
-    var it=0,s,x1,y,Hy,ys,t,nstep;
+    var it=0,i,s,x1,y,Hy,Hs,ys,i0,t,nstep,t1,t2;
     var msg = "";
     g0 = gradient(x0);
     while(it<maxit) {
@@ -4063,9 +9460,9 @@ exports.uncmin = function uncmin(f,x0,tol,gradient,maxit,callback,options) {
 
     }
     return {solution: x0, f: f0, gradient: g0, invHessian: H1, iterations:it, message: msg};
-};
+}
 
-},{"typed-array-function":2,"typed-array-ops":3,"typed-matrix-ops":6}],8:[function(require,module,exports){
+},{"typed-array-function":4,"typed-array-ops":5,"typed-matrix-ops":9}],11:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
 /*globals */ 
 
@@ -4202,7 +9599,7 @@ exports.uncmin = function uncmin(f,x0,tol,gradient,maxit,callback,options) {
     exports.drawBox     = function (buffer, width, x, y, h, w, rot, color, rop) { _drawPolygon(buffer, width, rotPoints(polyBox    (x, y, h, w), rot, { x: x, y: y }), color, rop); };
 }());
 
-},{}],9:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
 
 "use strict";
@@ -4276,520 +9673,6 @@ function template(text,data) {
 
 module.exports = template;
 
-},{}],10:[function(require,module,exports){
-"use strict"
-
-function interp1d(arr, x) {
-  var ix = Math.floor(x)
-    , fx = x - ix
-    , s0 = 0 <= ix   && ix   < arr.shape[0]
-    , s1 = 0 <= ix+1 && ix+1 < arr.shape[0]
-    , w0 = s0 ? +arr.get(ix)   : 0.0
-    , w1 = s1 ? +arr.get(ix+1) : 0.0
-  return (1.0-fx)*w0 + fx*w1
-}
-
-function interp2d(arr, x, y) {
-  var ix = Math.floor(x)
-    , fx = x - ix
-    , s0 = 0 <= ix   && ix   < arr.shape[0]
-    , s1 = 0 <= ix+1 && ix+1 < arr.shape[0]
-    , iy = Math.floor(y)
-    , fy = y - iy
-    , t0 = 0 <= iy   && iy   < arr.shape[1]
-    , t1 = 0 <= iy+1 && iy+1 < arr.shape[1]
-    , w00 = s0&&t0 ? arr.get(ix  ,iy  ) : 0.0
-    , w01 = s0&&t1 ? arr.get(ix  ,iy+1) : 0.0
-    , w10 = s1&&t0 ? arr.get(ix+1,iy  ) : 0.0
-    , w11 = s1&&t1 ? arr.get(ix+1,iy+1) : 0.0
-  return (1.0-fy) * ((1.0-fx)*w00 + fx*w10) + fy * ((1.0-fx)*w01 + fx*w11)
-}
-
-function interp3d(arr, x, y, z) {
-  var ix = Math.floor(x)
-    , fx = x - ix
-    , s0 = 0 <= ix   && ix   < arr.shape[0]
-    , s1 = 0 <= ix+1 && ix+1 < arr.shape[0]
-    , iy = Math.floor(y)
-    , fy = y - iy
-    , t0 = 0 <= iy   && iy   < arr.shape[1]
-    , t1 = 0 <= iy+1 && iy+1 < arr.shape[1]
-    , iz = Math.floor(z)
-    , fz = z - iz
-    , u0 = 0 <= iz   && iz   < arr.shape[2]
-    , u1 = 0 <= iz+1 && iz+1 < arr.shape[2]
-    , w000 = s0&&t0&&u0 ? arr.get(ix,iy,iz)       : 0.0
-    , w010 = s0&&t1&&u0 ? arr.get(ix,iy+1,iz)     : 0.0
-    , w100 = s1&&t0&&u0 ? arr.get(ix+1,iy,iz)     : 0.0
-    , w110 = s1&&t1&&u0 ? arr.get(ix+1,iy+1,iz)   : 0.0
-    , w001 = s0&&t0&&u1 ? arr.get(ix,iy,iz+1)     : 0.0
-    , w011 = s0&&t1&&u1 ? arr.get(ix,iy+1,iz+1)   : 0.0
-    , w101 = s1&&t0&&u1 ? arr.get(ix+1,iy,iz+1)   : 0.0
-    , w111 = s1&&t1&&u1 ? arr.get(ix+1,iy+1,iz+1) : 0.0
-  return (1.0-fz) * ((1.0-fy) * ((1.0-fx)*w000 + fx*w100) + fy * ((1.0-fx)*w010 + fx*w110)) + fz * ((1.0-fy) * ((1.0-fx)*w001 + fx*w101) + fy * ((1.0-fx)*w011 + fx*w111))
-}
-
-function interpNd(arr) {
-  var d = arr.shape.length|0
-    , ix = new Array(d)
-    , fx = new Array(d)
-    , s0 = new Array(d)
-    , s1 = new Array(d)
-    , i, t
-  for(i=0; i<d; ++i) {
-    t = +arguments[i+1]
-    ix[i] = Math.floor(t)
-    fx[i] = t - ix[i]
-    s0[i] = (0 <= ix[i]   && ix[i]   < arr.shape[i])
-    s1[i] = (0 <= ix[i]+1 && ix[i]+1 < arr.shape[i])
-  }
-  var r = 0.0, j, w, idx
-i_loop:
-  for(i=0; i<(1<<d); ++i) {
-    w = 1.0
-    idx = arr.offset
-    for(j=0; j<d; ++j) {
-      if(i & (1<<j)) {
-        if(!s1[j]) {
-          continue i_loop
-        }
-        w *= fx[j]
-        idx += arr.stride[j] * (ix[j] + 1)
-      } else {
-        if(!s0[j]) {
-          continue i_loop
-        }
-        w *= 1.0 - fx[j]
-        idx += arr.stride[j] * ix[j]
-      }
-    }
-    r += w * arr.data[idx]
-  }
-  return r
-}
-
-function interpolate(arr, x, y, z) {
-  switch(arr.shape.length) {
-    case 0:
-      return 0.0
-    case 1:
-      return interp1d(arr, x)
-    case 2:
-      return interp2d(arr, x, y)
-    case 3:
-      return interp3d(arr, x, y, z)
-    default:
-      return interpNd.apply(undefined, arguments)
-  }
-}
-module.exports = interpolate
-module.exports.d1 = interp1d
-module.exports.d2 = interp2d
-module.exports.d3 = interp3d
-
-},{}],11:[function(require,module,exports){
-"use strict"
-
-var iota = require("iota-array")
-
-var arrayMethods = [
-  "concat",
-  "join",
-  "slice",
-  "toString",
-  "indexOf",
-  "lastIndexOf",
-  "forEach",
-  "every",
-  "some",
-  "filter",
-  "map",
-  "reduce",
-  "reduceRight"
-]
-
-function compare1st(a, b) {
-  return a[0] - b[0]
-}
-
-function order() {
-  var stride = this.stride
-  var terms = new Array(stride.length)
-  var i
-  for(i=0; i<terms.length; ++i) {
-    terms[i] = [Math.abs(stride[i]), i]
-  }
-  terms.sort(compare1st)
-  var result = new Array(terms.length)
-  for(i=0; i<result.length; ++i) {
-    result[i] = terms[i][1]
-  }
-  return result
-}
-
-function compileConstructor(dtype, dimension) {
-  var className = ["View", dimension, "d", dtype].join("")
-  if(dimension < 0) {
-    className = "View_Nil" + dtype
-  }
-  var useGetters = (dtype === "generic")
-  
-  if(dimension === -1) {
-    //Special case for trivial arrays
-    var code = 
-      "function "+className+"(a){this.data=a;};\
-var proto="+className+".prototype;\
-proto.dtype='"+dtype+"';\
-proto.index=function(){return -1};\
-proto.size=0;\
-proto.dimension=-1;\
-proto.shape=proto.stride=proto.order=[];\
-proto.lo=proto.hi=proto.transpose=proto.step=\
-function(){return new "+className+"(this.data);};\
-proto.get=proto.set=function(){};\
-proto.pick=function(){return null};\
-return function construct_"+className+"(a){return new "+className+"(a);}"
-    var procedure = new Function(code)
-    return procedure()
-  } else if(dimension === 0) {
-    //Special case for 0d arrays
-    var code =
-      "function "+className+"(a,d) {\
-this.data = a;\
-this.offset = d\
-};\
-var proto="+className+".prototype;\
-proto.dtype='"+dtype+"';\
-proto.index=function(){return this.offset};\
-proto.dimension=0;\
-proto.size=1;\
-proto.shape=\
-proto.stride=\
-proto.order=[];\
-proto.lo=\
-proto.hi=\
-proto.transpose=\
-proto.step=function "+className+"_copy() {\
-return new "+className+"(this.data,this.offset)\
-};\
-proto.pick=function "+className+"_pick(){\
-return TrivialArray(this.data);\
-};\
-proto.valueOf=proto.get=function "+className+"_get(){\
-return "+(useGetters ? "this.data.get(this.offset)" : "this.data[this.offset]")+
-"};\
-proto.set=function "+className+"_set(v){\
-return "+(useGetters ? "this.data.set(this.offset,v)" : "this.data[this.offset]=v")+"\
-};\
-return function construct_"+className+"(a,b,c,d){return new "+className+"(a,d)}"
-    var procedure = new Function("TrivialArray", code)
-    return procedure(CACHED_CONSTRUCTORS[dtype][0])
-  }
-
-  var code = ["'use strict'"]
-    
-  //Create constructor for view
-  var indices = iota(dimension)
-  var args = indices.map(function(i) { return "i"+i })
-  var index_str = "this.offset+" + indices.map(function(i) {
-        return ["this._stride", i, "*i",i].join("")
-      }).join("+")
-  code.push("function "+className+"(a,"+
-    indices.map(function(i) {
-      return "b"+i
-    }).join(",")+","+
-    indices.map(function(i) {
-      return "c"+i
-    }).join(",")+",d){this.data=a")
-  for(var i=0; i<dimension; ++i) {
-    code.push("this._shape"+i+"=b"+i+"|0")
-  }
-  for(var i=0; i<dimension; ++i) {
-    code.push("this._stride"+i+"=c"+i+"|0")
-  }
-  code.push("this.offset=d|0}",
-    "var proto="+className+".prototype",
-    "proto.dtype='"+dtype+"'",
-    "proto.dimension="+dimension)
-  
-  //view.stride and view.shape
-  var strideClassName = "VStride" + dimension + "d" + dtype
-  var shapeClassName = "VShape" + dimension + "d" + dtype
-  var props = {"stride":strideClassName, "shape":shapeClassName}
-  for(var prop in props) {
-    var arrayName = props[prop]
-    code.push(
-      "function " + arrayName + "(v) {this._v=v} var aproto=" + arrayName + ".prototype",
-      "aproto.length="+dimension)
-    
-    var array_elements = []
-    for(var i=0; i<dimension; ++i) {
-      array_elements.push(["this._v._", prop, i].join(""))
-    }
-    code.push(
-      "aproto.toJSON=function " + arrayName + "_toJSON(){return [" + array_elements.join(",") + "]}",
-      "aproto.valueOf=aproto.toString=function " + arrayName + "_toString(){return [" + array_elements.join(",") + "].join()}")
-    
-    for(var i=0; i<dimension; ++i) {
-      code.push(["Object.defineProperty(aproto,", i, ",{get:function(){return this._v._", prop, i, "},set:function(v){return this._v._", prop, i, "=v|0},enumerable:true})"].join(""))
-    }
-    for(var i=0; i<arrayMethods.length; ++i) {
-      if(arrayMethods[i] in Array.prototype) {
-        code.push(["aproto.", arrayMethods[i], "=Array.prototype.", arrayMethods[i]].join(""))
-      }
-    }
-    code.push(["Object.defineProperty(proto,'",prop,"',{get:function ", arrayName, "_get(){return new ", arrayName, "(this)},set: function ", arrayName, "_set(v){"].join(""))
-    for(var i=0; i<dimension; ++i) {
-      code.push(["this._", prop, i, "=v[", i, "]|0"].join(""))
-    }
-    code.push("return v}})")
-  }
-  
-  //view.size:
-  code.push(["Object.defineProperty(proto,'size',{get:function ",className,"_size(){\
-return ", indices.map(function(i) { return ["this._shape", i].join("") }).join("*"),
-"}})"].join(""))
-
-  //view.order:
-  if(dimension === 1) {
-    code.push("proto.order=[0]")
-  } else {
-    code.push("Object.defineProperty(proto,'order',{get:")
-    if(dimension < 4) {
-      code.push(["function ",className,"_order(){"].join(""))
-      if(dimension === 2) {
-        code.push("return (Math.abs(this._stride0)>Math.abs(this._stride1))?[1,0]:[0,1]}})")
-      } else if(dimension === 3) {
-        code.push(
-"var s0=Math.abs(this._stride0),s1=Math.abs(this._stride1),s2=Math.abs(this._stride2);\
-if(s0>s1){\
-if(s1>s2){\
-return [2,1,0];\
-}else if(s0>s2){\
-return [1,2,0];\
-}else{\
-return [1,0,2];\
-}\
-}else if(s0>s2){\
-return [2,0,1];\
-}else if(s2>s1){\
-return [0,1,2];\
-}else{\
-return [0,2,1];\
-}}})")
-      }
-    } else {
-      code.push("ORDER})")
-    }
-  }
-  
-  //view.set(i0, ..., v):
-  code.push([
-"proto.set=function ",className,"_set(", args.join(","), ",v){"].join(""))
-  if(useGetters) {
-    code.push(["return this.data.set(", index_str, ",v)}"].join(""))
-  } else {
-    code.push(["return this.data[", index_str, "]=v}"].join(""))
-  }
-  
-  //view.get(i0, ...):
-  code.push(["proto.get=function ",className,"_get(", args.join(","), "){"].join(""))
-  if(useGetters) {
-    code.push(["return this.data.get(", index_str, ")}"].join(""))
-  } else {
-    code.push(["return this.data[", index_str, "]}"].join(""))
-  }
-  
-  //view.index:
-  code.push([
-    "proto.index=function ",
-      className,
-      "_index(", args.join(), "){return ", 
-      index_str, "}"].join(""))
-
-  //view.hi():
-  code.push(["proto.hi=function ",className,"_hi(",args.join(","),"){return new ", className, "(this.data,",
-    indices.map(function(i) {
-      return ["(typeof i",i,"!=='number'||i",i,"<0)?this._shape", i, ":i", i,"|0"].join("")
-    }).join(","), ",",
-    indices.map(function(i) {
-      return "this._stride"+i
-    }).join(","), ",this.offset)}"].join(""))
-  
-  //view.lo():
-  var a_vars = indices.map(function(i) { return "a"+i+"=this._shape"+i })
-  var c_vars = indices.map(function(i) { return "c"+i+"=this._stride"+i })
-  code.push(["proto.lo=function ",className,"_lo(",args.join(","),"){var b=this.offset,d=0,", a_vars.join(","), ",", c_vars.join(",")].join(""))
-  for(var i=0; i<dimension; ++i) {
-    code.push([
-"if(typeof i",i,"==='number'&&i",i,">=0){\
-d=i",i,"|0;\
-b+=c",i,"*d;\
-a",i,"-=d}"].join(""))
-  }
-  code.push(["return new ", className, "(this.data,",
-    indices.map(function(i) {
-      return "a"+i
-    }).join(","),",",
-    indices.map(function(i) {
-      return "c"+i
-    }).join(","), ",b)}"].join(""))
-  
-  //view.step():
-  code.push(["proto.step=function ",className,"_step(",args.join(","),"){var ",
-    indices.map(function(i) {
-      return "a"+i+"=this._shape"+i
-    }).join(","), ",",
-    indices.map(function(i) {
-      return "b"+i+"=this._stride"+i
-    }).join(","),",c=this.offset,d=0,ceil=Math.ceil"].join(""))
-  for(var i=0; i<dimension; ++i) {
-    code.push([
-"if(typeof i",i,"==='number'){\
-d=i",i,"|0;\
-if(d<0){\
-c+=b",i,"*(a",i,"-1);\
-a",i,"=ceil(-a",i,"/d)\
-}else{\
-a",i,"=ceil(a",i,"/d)\
-}\
-b",i,"*=d\
-}"].join(""))
-  }
-  code.push(["return new ", className, "(this.data,",
-    indices.map(function(i) {
-      return "a" + i
-    }).join(","), ",",
-    indices.map(function(i) {
-      return "b" + i
-    }).join(","), ",c)}"].join(""))
-  
-  //view.transpose():
-  var tShape = new Array(dimension)
-  var tStride = new Array(dimension)
-  for(var i=0; i<dimension; ++i) {
-    tShape[i] = ["a[i", i, "]"].join("")
-    tStride[i] = ["b[i", i, "]"].join("")
-  }
-  code.push(["proto.transpose=function ",className,"_transpose(",args,"){", 
-    args.map(function(n,idx) { return n + "=(" + n + "===undefined?" + idx + ":" + n + "|0)"}).join(";"),
-    ";var a=this.shape,b=this.stride;return new ", className, "(this.data,", tShape.join(","), ",", tStride.join(","), ",this.offset)}"].join(""))
-  
-  //view.pick():
-  code.push(["proto.pick=function ",className,"_pick(",args,"){var a=[],b=[],c=this.offset"].join(""))
-  for(var i=0; i<dimension; ++i) {
-    code.push(["if(typeof i",i,"==='number'&&i",i,">=0){c=(c+this._stride",i,"*i",i,")|0}else{a.push(this._shape",i,");b.push(this._stride",i,")}"].join(""))
-  }
-  code.push("var ctor=CTOR_LIST[a.length+1];return ctor(this.data,a,b,c)}")
-    
-  //Add return statement
-  code.push(["return function construct_",className,"(data,shape,stride,offset){return new ", className,"(data,",
-    indices.map(function(i) {
-      return "shape["+i+"]"
-    }).join(","), ",",
-    indices.map(function(i) {
-      return "stride["+i+"]"
-    }).join(","), ",offset)}"].join(""))
-
-  //Compile procedure
-  var procedure = new Function("CTOR_LIST", "ORDER", code.join("\n"))
-  return procedure(CACHED_CONSTRUCTORS[dtype], order)
-}
-
-function arrayDType(data) {
-  if(data instanceof Float64Array) {
-    return "float64";
-  } else if(data instanceof Float32Array) {
-    return "float32"
-  } else if(data instanceof Int32Array) {
-    return "int32"
-  } else if(data instanceof Uint32Array) {
-    return "uint32"
-  } else if(data instanceof Uint8Array) {
-    return "uint8"
-  } else if(data instanceof Uint16Array) {
-    return "uint16"
-  } else if(data instanceof Int16Array) {
-    return "int16"
-  } else if(data instanceof Int8Array) {
-    return "int8"
-  } else if(data instanceof Uint8ClampedArray) {
-    return "uint8_clamped"
-  } else if(data instanceof Array) {
-    return "array"
-  }
-  return "generic"
-}
-
-var CACHED_CONSTRUCTORS = {
-  "float32":[],
-  "float64":[],
-  "int8":[],
-  "int16":[],
-  "int32":[],
-  "uint8":[],
-  "uint16":[],
-  "uint32":[],
-  "array":[],
-  "uint8_clamped":[],
-  "generic":[]
-}
-
-;(function() {
-  for(var id in CACHED_CONSTRUCTORS) {
-    CACHED_CONSTRUCTORS[id].push(compileConstructor(id, -1))
-  }
-});
-
-function wrappedNDArrayCtor(data, shape, stride, offset) {
-  if(data === undefined) {
-    var ctor = CACHED_CONSTRUCTORS.array[0]
-    return ctor([])
-  } else if(typeof data === "number") {
-    data = [data]
-  }
-  if(shape === undefined) {
-    shape = [ data.length ]
-  }
-  var d = shape.length
-  if(stride === undefined) {
-    stride = new Array(d)
-    for(var i=d-1, sz=1; i>=0; --i) {
-      stride[i] = sz
-      sz *= shape[i]
-    }
-  }
-  if(offset === undefined) {
-    offset = 0
-    for(var i=0; i<d; ++i) {
-      if(stride[i] < 0) {
-        offset -= (shape[i]-1)*stride[i]
-      }
-    }
-  }
-  var dtype = arrayDType(data)
-  var ctor_list = CACHED_CONSTRUCTORS[dtype]
-  while(ctor_list.length <= d+1) {
-    ctor_list.push(compileConstructor(dtype, ctor_list.length-1))
-  }
-  var ctor = ctor_list[d+1]
-  return ctor(data, shape, stride, offset)
-}
-
-module.exports = wrappedNDArrayCtor
-
-},{"iota-array":12}],12:[function(require,module,exports){
-"use strict"
-
-function iota(n) {
-  var result = new Array(n)
-  for(var i=0; i<n; ++i) {
-    result[i] = i
-  }
-  return result
-}
-
-module.exports = iota
 },{}]},{},[]);
 
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
@@ -5160,17 +10043,18 @@ module.exports = iota
 
 
     var statTemplate = "                                                                                \
-        <table width=100%>                                                                              \
-            <tr><td align=right>Position x</td> <td align=right>{reg.x%.2f}              </td>          \
+        <table width=100% style='padding-right: 6px; padding-left: 0px'>                                \
+            <tr><td align=right>position x</td> <td align=right>{reg.x%.2f}              </td>          \
             <td align=right>y</td>              <td align=right>{reg.y%.2f}             </td></tr>      \
-            <tr><td align=right>width</td>      <td align=right>{reg.width%.2f}         </td>           \
+            <tr><td align=right>box width</td>      <td align=right>{reg.width%.2f}         </td>       \
             <td align=right>height</td>         <td align=right>{reg.height%.2f}        </td></tr>      \
             <tr><td align=right>min</td>        <td align=right>{min%.2f}               </td>           \
             <td align=right>max</td>            <td align=right>{max%.2f}               </td></tr>      \
-            <tr><td align=right>counts</td>     <td align=right colspan=3>{centroid.sum%.2f}</tr>       \
-            <tr><td align=right>bkgrnd</td>     <td align=right>{backgr.value%.2f}      </td>           \
+            <tr><td align=right>totcounts</td>     <td align=right colspan=3>{centroid2.sum%.2f}</tr>   \
+            <tr><td align=right>bscounts</td>     <td align=right colspan=3>{centroid.sum%.2f}</tr>     \
+            <tr><td align=right>bkgd</td>     <td align=right>{backgr.value%.2f}      </td>             \
             <td align=right>noise</td>          <td align=right>{backgr.noise%.2f}      </td></tr>      \
-            <tr><td align=right>Centroid x</td> <td align=right>{centroid.cenx%.2f}     </td>           \
+            <tr><td align=right>centroid x</td> <td align=right>{centroid.cenx%.2f}     </td>           \
             <td align=right>y</td>              <td align=right>{centroid.ceny%.2f}     </td></tr>      \
             <tr><td align=right>FWHM</td>       <td align=right>{centroid.fwhm%.2f}     </td>           \
             <td align=right></td>            <td align=right>{centroid.rms%.2f}      </td></tr>         \
@@ -5183,6 +10067,7 @@ module.exports = iota
 	    var imag    = imexam.getRegionData(im, xreg);
 
             var data    = imexam.ndops.assign(imexam.ndops.zeros(imag.shape), imag);
+            var data2   = imexam.ndops.assign(imexam.ndops.zeros(imag.shape), imag);
 
             var stat    = {};
 
@@ -5195,6 +10080,7 @@ module.exports = iota
 
             stat.qcenter  = imexam.ndops.qcenter(data);
             stat.centroid = imexam.ndops.centroid(data, imexam.ndops.qcenter(data));
+            stat.centroid2 = imexam.ndops.centroid(data2, imexam.ndops.qcenter(data2));
 
             stat.centroid.cenx += section[0][0];
             stat.centroid.ceny += section[1][0];
@@ -7775,7 +12661,7 @@ if (typeof exports !== "undefined") {
 	var div = this.div;
 
 	div.innerHTML = '<form class="contour-form">							\
-	    <table><tr>	<td>N</td>									\
+	    <table style="border-collapse: separate; border-spacing: 5px 5px;"><tr>	<td>N</td>	\
 			<td><input type=text name=nlevel value=5 size=10></td>				\
 		       	<td><input type=button value="Draw Contours" class="drw-contour"></td></tr>	\
 	           <tr>	<td>Min</td>									\
@@ -7783,12 +12669,12 @@ if (typeof exports !== "undefined") {
 		       	<td><input type=button value="Set Min/Max" class="get-min-max"></td></tr>	\
 	           <tr>	<td>Max</td>									\
 			<td><input type=text name=max size=10></td></tr>				\
-	           <tr>	<td valign=top>Levels:</td>							\
-	    		<td rowspan=5><textarea type=textarea rows=12 cols=10 name=level class="contour-levels">	\
+	           <tr>	<td valign=top>Levels</td>							\
+	    		<td rowspan=5><textarea style="margin: 0px; padding: 5px" type=textarea rows=12 cols=10 name=level class="contour-levels">	\
 			    </textarea>									\
 		       	<td valign=top><input type=button value="Make Levels" class="make-levels"></td>	\
 		   </tr>										\
-		   <tr><td><br></td></tr>										\
+		   <tr><td><br></td></tr>								\
 		   <tr>	<td></td><td align=center valign=top>						\
 				Binning									\
 				<select id=binning name=binpix>						\
@@ -7808,16 +12694,16 @@ if (typeof exports !== "undefined") {
 				Smooth									\
 				<select id=smooth name=smopix>						\
 				<option>None</option>							\
-				<option value=0.75 selected>3</option>							\
-				<option value=1.00>5</option>							\
-				<option value=1.25>7</option>							\
+				<option value=0.75 selected>3</option>					\
+				<option value=1.00>5</option>						\
+				<option value=1.25>7</option>						\
 				</select>								\
 				pix									\
 			</td>										\
 		   </tr>										\
 		   <tr>	<td></td><td align=center valign=top><br>Quality:				\
 				<br>&nbsp;<input type=radio name=quality value=faster checked>Faster	\
-				<br>&nbsp;<input type=radio name=quality value=better>Better		\
+				<br><input type=radio name=quality value=better>Better			\
 			</td>										\
 		   </tr>										\
 	    </table>											\

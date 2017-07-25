@@ -4,9 +4,11 @@
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=Edge;chrome=1" > 
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link type="image/x-icon" rel="shortcut icon" href="./favicon.ico">
   <link type="text/css" rel="stylesheet" href="js9support.css">
   <link type="text/css" rel="stylesheet" href="js9.css">
+  <script type="text/javascript" src="js9prefs.js"></script>
   <script type="text/javascript" src="js9support.min.js"></script>
   <script type="text/javascript" src="js9.min.js"></script>
   <script type="text/javascript" src="js9plugins.js"></script>
@@ -132,21 +134,21 @@
     </div>
     <script type="text/javascript">
     var Load = function(name){
-      JS9.globalOpts.rgb.rim = null;
-      JS9.globalOpts.rgb.gim = null;
-      JS9.globalOpts.rgb.bim = null;
+      for(i=0; i<JS9.images.length; i++){
+        JS9.images[i].closeImage();
+      }
       switch(name){
       case 'kes75':
         $(".arrow").css("visibility", "hidden");
-        JS9.Load("kes75/kes75_e1.png", {scale: "log"});
-        JS9.Load("kes75/kes75_e2.png", {scale: "log"});
-        JS9.Load("kes75/kes75_e3.png", {scale: "log"});
+        JS9.Load("kes75/kes75_e1.png", {scale: "log", colormap: "red"});
+        JS9.Load("kes75/kes75_e2.png", {scale: "log", colormap: "green"});
+        JS9.Load("kes75/kes75_e3.png", {scale: "log", colormap: "blue"});
         break;
       case 'orion':
         $(".arrow").css("visibility", "visible");
-        JS9.Load("orion/orion_1.fits", {scale: "linear"});
-        JS9.Load("orion/orion_2.fits", {scale: "linear"});
-        JS9.Load("orion/orion_3.fits", {scale: "linear"});
+        JS9.Load("orion/orion_1.fits", {scale: "linear", colormap: "red"});
+        JS9.Load("orion/orion_2.fits", {scale: "linear", colormap: "green"});
+        JS9.Load("orion/orion_3.fits", {scale: "linear", colormap: "blue"});
         break;
       }
     }
@@ -177,6 +179,7 @@ JS9 Demos:
 <li><a href='js9basics.html'>JS9 Demo: the basics</a>
 <li><a href='js9bespoke.html'>JS9 Demo: web page control of JS9</a>
 <li><a href='js9sizes.html'>JS9 Demo: setting the size of the JS9 display</a>
+<li><a href='js9large.html'>JS9 Demo: support for large FITS files</a>
 <li><a href='js9plugins.html'>JS9 Demo: adding plugins to JS9</a> 
 <li><a href='js9imexam.html'>JS9 Demo: the imexam plugin for JS9</a> 
 <li><a href='js9blend.html'>JS9 Demo: image blending</a> 
@@ -189,6 +192,7 @@ JS9 Demos:
 <li><a href='js9create.html'>JS9 Demo: creating a JS9 instance dynamically</a> 
 <li><a href='js9preload.html'>JS9 Demo: preloading images into JS9</a>
 <li><a href='js9bitpix.html'>JS9 Demo: displaying different FITS datatypes</a> 
+<li><a href='js9allinone.html'>JS9 Demo: using the all-in-one files</a> 
 <li><a href='js9pngvsfits.html'>JS9 Demo: PNG representation files vs FITS files</a> 
 </ul>
 </body>

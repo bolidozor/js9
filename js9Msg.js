@@ -4,18 +4,36 @@
  *
  * requires: socket.io
  *
+ * Principals: Eric Mandel
+ * Organization: Harvard Smithsonian Center for Astrophysics, Cambridge MA
+ * Contact: saord@cfa.harvard.edu
+ *
+ * Copyright (c) 2013 - 2016 Smithsonian Astrophysical Observatory
+ *
  */
 
 /*jslint plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, node: true */
 
+/* global require process */
+/* eslint no-console: "off" */
+
 // load required modules
-var sockio = require("socket.io/node_modules/socket.io-client"),
+var sockio = require("socket.io-client"),
+    os = require('os'),
+    fs = require('fs'),
+    path = require('path'),
     dns = require('dns'),
+    opn = require('opn'),
+    timers = require('timers'),
     readline = require("readline");
 
 // internal variables
-var msg, host;
+var s, msg;
 var args = process.argv.slice(2);
+var browser = "";
+var content = "";
+var defpage = "/js9.html";
+var debug = false;
 var done = false;
 var doserver = false;
 var dopipe = false;
@@ -23,42 +41,75 @@ var helperScheme = "http://";
 var helperHost = "localhost";
 var helperPort = 2718;
 var helperURL=""; // will be composed after getting user options
+var host = "";
 var istty = process.stdin.isTTY  || false;
-var rl = null;
-var socket = null;
-var debug = false;
-var verify = false;
-var msgType = "msg";
 var nsendexit = false;
 var nsend = 0;
-var content = "";
+var rl = null;
+var socket = null;
 var sockopts = {
     reconnection: false,
     timeout: 10000
 };
+var tries = 20;
+var timeout = 5000;
+var timeout0 = Math.floor(timeout / tries);
+var verify = false;
+var webpage = "";
+var srcdir = process.env.JS9_SRCDIR;
+var installdir = process.env.JS9_INSTALLDIR;
 
 // ever-present
-function usage() {
+var usage = function() {
   var prog = "js9";
   console.log("usage: %s [switches] [cmd] [args]", prog);
+  console.log("usage: %s -b [bname] -w [url] [switches] [image]", prog);
   console.log("  switches:");
-  console.log("    -h|-help               # print this message");
-  console.log("    -browser [hostname]    # this client's host name/ip");
-  console.log("    -host|-helper [host]   # helper host name (def: localhost)");
-  console.log("    -helperPort [port]     # helper port (def: 2718)");
-  console.log("    -id [id]               # client JS9 id (def: JS9)");
-  console.log("    -msgType [type]        # message type (def: 'msg')");
-  console.log("    -multi                 # send to multiple clients");
-  console.log("    - or -pipe             # read argument list from stdin");
-  console.log("    -pageid [id]           # unique page id from server");
+  console.log("    --help                    # print this message");
+  console.log("    -b|--browser [bname]      # chrome|firefox|safari");
+  console.log("    -d|--debug                # output debugging info");
+  console.log("    -h|--host|--helper [host]  # helper host (def: localhost)");
+  console.log("    -i|--id [id]              # client JS9 id (def: JS9)");
+  console.log("    -m|--multi                # send to multiple clients");
+  console.log("    --pageid [id]             # unique page id from server");
+  console.log("    -|-p|--pipe               # read argument list from stdin");
+  console.log("    -t|--timeout              # timeout for browser startup");
+  console.log("    -v|--verify               # output verification info");
+  console.log("    -w|--webpage [url]        # url to open in new browser");
+  console.log(" ");
   console.log("  examples:");
-  console.log("    %s help               # list available commands", prog);
-  console.log("    %s cmap heat          # change colormap to 'heat'", prog);
-  console.log("    %s regions            # return current regions", prog);
-  console.log("    %s -id myJS9 regions  # regions for myJS9 instance", prog);
-  console.log("    %s                    # read commands from stdin", prog);
+  console.log("    %s help                  # list available commands", prog);
+  console.log("    %s cmap heat             # change colormap to 'heat'", prog);
+  console.log("    %s regions               # return current regions", prog);
+  console.log("    %s --id myJS9 regions    # regions for this instance", prog);
+  console.log("    %s                       # read commands from stdin", prog);
+  console.log(" ");
+  console.log("  start a local web page in a browser and load an image:");
+  console.log("    # start firefox and load foo.fits into the myjs9.html page");
+  console.log("    %s -b firefox -w ~/myjs9.html foo.fits", prog);
+  console.log("    # display js9.html web page (or $JS9_WEBPAGE) in $JS9_BROWSER");
+  console.log("    # and then load foo.fits");
+  console.log("    %s -b foo.fits", prog);
+  console.log("    # ... then carry on as usual");
+  console.log("    %s cmap heat", prog);
+  console.log(" ");
+  console.log("  environment variables:");
+  console.log("    JS9_BROWSER              # browser to use with -b (chrome|firefox|safari)");
+  console.log("    JS9_WEBPAGE              # web page to use with -b (so -w not needed)");
+  console.log("    JS9_SRCDIR               # where to look, if you don't build/install");
+  console.log(" ");
+  console.log("  notes:");
+  console.log("  Linux Firefox restricts access to images within the web directory structure.");
+  console.log("  See: https://github.com/mrdoob/three.js/wiki/How-to-run-things-locally");
+  console.log("  for work-arounds, or use Chrome (which we adjust auto-magically.)");
   process.exit(0);
-}
+};
+
+// error message and exit
+var error = function(s){
+    console.log("ERROR: " + s);
+    process.exit(1);
+};
 
 // message constructor
 function JS9Msg(){
@@ -68,6 +119,7 @@ function JS9Msg(){
     this.browserip = "*";
     this.multi = false;
     this.pageid = null;
+    this.timeout = 1000;
 }
 
 JS9Msg.prototype.reset = function() {
@@ -78,16 +130,112 @@ JS9Msg.prototype.reset = function() {
 
 // args: set cmd and args from array
 JS9Msg.prototype.setArgs = function(args) {
-    switch(msgType){
-    case "msg":
-        this.cmd = args[0];
-        this.args = args.slice(1) || [];
-	break;
-    default:
-        this.cmd = args[0];
-        this.args = args.slice(1) || [];
+    this.cmd = args[0];
+    this.args = args.slice(1) || [];
+};
+
+// waitSend: wait a bit, send message, display results (and maybe exit)
+JS9Msg.prototype.waitSend = function(tries){
+    var that = this;
+    if( !tries ){
+	error("no targets found for: " + browser);
+	return;
+    }
+    // wait a bit for js9 page to load
+    timers.setTimeout(function(){
+	msg.setArgs(["targets"]);
+	socket.emit("msg", msg, function(targets){
+	    var i;
+	    if( targets ){
+		// all args are files to be loaded
+		for(i=0; i<args.length; i++){
+		    // use absolute paths
+		    args[i] = path.resolve(args[i]);
+		}
+		// prefix with the load argument
+		args.unshift("load");
+		// set arguments
+		msg.setArgs(args);
+		// send message and display results
+		msg.send(socket, null, "exit");
+	    } else {
+		that.waitSend(--tries);
+	    }
+	});
+    }, timeout0);
+};
+
+// which web page do we use?
+// changes globals: browser, webpage
+JS9Msg.prototype.findWebpage = function(){
+    if( !browser && !webpage ){
+	return;
+    }
+    if( browser && !webpage ){
+	if( process.env.JS9_WEBPAGE ){
+	    webpage = process.env.JS9_WEBPAGE;
+	}
+	if( !webpage && installdir ){
+	    webpage = installdir + defpage;
+	    fs.access(webpage, fs.R_OK, function(err) {
+		if( err ){
+		    webpage = null;
+		}
+	    });
+	}
+	if( !webpage && srcdir ){
+	    webpage = srcdir + defpage;
+	    fs.access(webpage, fs.R_OK, function(err) {
+		if( err ){
+		    webpage = null;
+		}
+	    });
+	}
+	if( !webpage && (srcdir || installdir) ){
+	    error("can't find web page in src or install directory");
+	}
+    }
+    // final checks
+    if( browser && !webpage ){
+	error("browser request needs a web page");
+    }
+    if( browser && webpage ){
+	fs.access(webpage, fs.R_OK, function(err) {
+	    if( err ){
+		error("can't find web page: " + webpage);
+	    }
+	});
+    }
+};
+
+// start up browser and load web page
+// changes globals: browser
+JS9Msg.prototype.startBrowser = function(){
+    var switches;
+    var opts = {wait: false};
+    switch(browser){
+    case "chrome":
+	switch(os.type()){
+	case "Darwin":
+	    browser = "google chrome";
+	    switches = "--allow-file-access-from-files";
+	    break;
+	case "Linux":
+	    switches = "--allow-file-access-from-files";
+	    break;
+	}
 	break;
     }
+    if( browser ){
+	opts.app = [browser];
+	if( switches ){
+	    opts.app.push(switches);
+	}
+    }
+    if( verify ){
+	console.log("starting webpage: %s in browser: %s", webpage, browser);
+    }
+    return opn(webpage, opts);
 };
 
 // send: send message, display results (and maybe exit)
@@ -99,10 +247,10 @@ JS9Msg.prototype.send = function(socket, rl, postproc) {
     this.reset();
     // send msg to js9
     if( debug ){
-	console.log(msgType + ": " + JSON.stringify(msg));
+	console.log("msg: " + JSON.stringify(msg));
     }
     nsend++;
-    socket.emit(msgType, msg, function(s){
+    socket.emit("msg", msg, function(s){
 	var t;
 	nsend--;
 	// post-processing of results
@@ -118,7 +266,7 @@ JS9Msg.prototype.send = function(socket, rl, postproc) {
 	}
 	// display results
         if( s ){
-	    // on stab at converting objects to json
+	    // take a stab at converting objects to json
 	    if( typeof s === "object" ){
 		try{ t = JSON.stringify(s); }
 		catch(e){ t = s; }
@@ -215,57 +363,79 @@ if( process.env.JS9_HELPER ){
 // process optional switches
 while( !done ){
   switch(args[0]){
-    case '-h':
-    case '-help':
+    case '-b':
+    case '--browser':
+      args.shift();
+      switch(args[0]){
+      case "firefox":
+      case "chrome":
+      case "safari":
+	  browser = args.shift();
+	  break;
+      default:
+	  if( process.env.JS9_BROWSER ){
+	      browser = process.env.JS9_BROWSER;
+	  } else {
+	      error("no browser specified");
+	  }
+      }
+      break;
+    case '--help':
       usage();
       break;
-    case '-browser':
-      args.shift();
-      msg.browserip = args.shift();
-      break;
-    case '-id':
-      args.shift();
-      msg.id = args.shift();
-      break;
-    case '-multi':
-      args.shift();
-      msg.multi = true;
-      break;
-    case '-helper':
-    case '-host':
+    case '-h':
+    case '--helper':
+    case '--host':
       args.shift();
       helperHost = args.shift();
       break;
-    case '-helperPort':
+    case '--helperPort':
       args.shift();
       helperPort = args.shift();
       break;
-    case '-helperScheme':
+    case '--helperScheme':
       args.shift();
       helperScheme = args.shift();
       break;
-    case '-msgType':
+    case '-i':
+    case '--id':
       args.shift();
-      msgType = args.shift();
+      msg.id = args.shift();
       break;
-    case '-':
+    case '-m':
+    case '--multi':
       args.shift();
-      dopipe = true;
+      msg.multi = true;
       break;
-    case '-pipe':
-      args.shift();
-      dopipe = true;
-      break;
-    case '-pageid':
+    case '--pageid':
       args.shift();
       msg.pageid = args.shift();
       break;
+    case '-':
+    case '-p':
+    case '--pipe':
+      args.shift();
+      dopipe = true;
+      break;
+    case '-t':
+    case '--timeout':
+      args.shift();
+      timeout = parseInt(args.shift(), 10);
+      timeout0 = Math.floor(timeout / tries);
+      break;
+    case '-w':
+    case '--webpage':
+      args.shift();
+      webpage = args.shift();
+      break;
     case '-d':
+    case '--debug':
       args.shift();
       debug = true;
       verify = true;
       break;
     case '-v':
+    case '--verify':
       args.shift();
       verify = true;
       break;
@@ -275,13 +445,21 @@ while( !done ){
   }
 }
 
-// make up helper URL, if not set explicitly
+// compose helper URL, if not done explicitly
 if( !helperURL ){
-    helperURL = helperScheme + helperHost + ":" + helperPort;
+    s = "";
+    if( !helperHost.match(/:\/\//) ){
+	s += helperScheme;
+    }
+    s += helperHost;
+    if( !helperHost.match(/:[0-9][0-9]*$/) ){
+	s += ":" + helperPort;
+    }
+    helperURL = s;
 }
 
-// if no command, enter server mode
-if( (args.length === 0) || (args[0] === "") ){
+// if no command, set up server mode
+if( !browser && ((args.length === 0) || (args[0] === "")) ){
     if( verify ){
 	console.log("setting up server mode ...");
     }
@@ -293,25 +471,17 @@ if( (args.length === 0) || (args[0] === "") ){
     });
     rl.pause();
     doserver = true;
-} else {
-    // package msg (cmd and args)
-    msg.setArgs(args);
 }
 
 // kind of dumb: we want to convert the host name to an ip address, but the
 // dns.lookup call is asynchronous, so we have to wrap all of the important
 // code in its return function. wish we had a synchronous call!
-if( msg.browserip === "*" ){
-    host = "";
-} else {
-    host = msg.browserip;
-}
 dns.lookup(host, 4, function (err, address, family) {
+    var i;
     if( err ){
-	if(  msg.browserip  ){
-	    throw err;
-	}
-    } else if( address ){
+	throw err;
+    }
+    if( address ){
 	msg.browserip = address;
 	if( verify ){
 	    console.log('host ip: %s [%s]', msg.browserip, family);
@@ -325,10 +495,10 @@ dns.lookup(host, 4, function (err, address, family) {
     socket = sockio.connect(helperURL, sockopts);
     // check for connect errors
     socket.on("connect_failed", function(){
-	console.log("ERROR: connect failed: '%s'", helperURL);
+	error("connect failed: " + helperURL);
     });
     socket.on("connect_error", function(){
-	console.log("ERROR: connect failed: '%s'", helperURL);
+	error("connect failed: " + helperURL);
     });
     // and send the message
     socket.on("connect", function(){
@@ -338,31 +508,63 @@ dns.lookup(host, 4, function (err, address, family) {
 	    }
   	    msg.server(socket, rl);
 	} else {
-	    if( verify ){
-		if( msg.pageid ){
-		    console.log("pageid: %s", msg.pageid);
-		}
-		console.log("message: %s", msg.cmd);
-	    }
-	    if( dopipe ){
-		process.stdin.resume();
-		process.stdin.on("data", function(buf) {
-		    content += buf.toString();
-		});
-		process.stdin.on("end", function() {
-		    // push the contents of stdin onto the arg array
-		    // msg.args.push(content);
-		    if( msg.args.length > 0 ){
-			msg.args[msg.args.length-1] += "\n" + content;
+	    // find default web page, if necessary
+	    msg.findWebpage();
+	    // if we start up a web browser, we'll wait for it to connect
+	    if( webpage ){
+		// see if we already have a connection we can use
+		msg.setArgs(["targets"]);
+		socket.emit("msg", msg, function(targets){
+		    // no connection: start up webpage in browser
+		    if( !targets ){
+			// eslint-disable-next-line no-unused-vars
+			msg.startBrowser().then(function(result) {
+			    // wait for page to load and then send
+			    msg.waitSend(tries);
+			    // eslint-disable-next-line no-unused-vars
+			}, function(err) {
+			    error("can't start up browser: " + browser);
+			});
 		    } else {
-			msg.args[0] = content;
+			// browser is ready: all args are files to be loaded
+			for(i=0; i<args.length; i++){
+			    // use absolute paths
+			    args[i] = path.resolve(args[i]);
+			}
+			// prefix with the load argument
+			args.unshift("load");
+			// set arguments
+			msg.setArgs(args);
+			// target found: send message and display results
+			msg.send(socket, null, "exit");
 		    }
-		    // send message and display results
-		    msg.send(socket, null, "exit");
 		});
 	    } else {
-		// send message and display results
-		msg.send(socket, null, "exit");
+		// package msg (cmd and args)
+		msg.setArgs(args);
+		if( verify ){
+		    console.log("%s: %s", msg.cmd, JSON.stringify(msg.args));
+		}
+		if( dopipe ){
+		    process.stdin.resume();
+		    process.stdin.on("data", function(buf) {
+			content += buf.toString();
+		    });
+		    process.stdin.on("end", function() {
+			// push the contents of stdin onto the arg array
+			// msg.args.push(content);
+			if( msg.args.length > 0 ){
+			    msg.args[msg.args.length-1] += "\n" + content;
+			} else {
+			    msg.args[0] = content;
+			}
+			// send message and display results
+			msg.send(socket, null, "exit");
+		    });
+		} else {
+		    // send message and display results
+		    msg.send(socket, null, "exit");
+		}
 	    }
 	}
     });

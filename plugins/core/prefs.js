@@ -3,7 +3,7 @@
  */
 
 /*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
-/*global $, jQuery, JS9, sprintf, ddtabcontent */
+/*global $, JS9, sprintf, ddtabcontent */
 
 // To specify the JS9 display instance to link to a given PREFS div,
 // use the HTML5 dataset syntax: 
@@ -13,12 +13,12 @@
 JS9.Prefs = {};
 JS9.Prefs.CLASS = "JS9";        // class of plugins (1st part of div class)
 JS9.Prefs.NAME = "Preferences"; // name of this plugin (2nd part of div class)
-JS9.Prefs.WIDTH =  630;         // default width of window
-JS9.Prefs.HEIGHT = 250;	        // default height of window
+JS9.Prefs.WIDTH =  750;         // default width of window
+JS9.Prefs.HEIGHT = 400;	        // default height of window
 
 JS9.Prefs.imagesSchema = {
     "title": "Image Preferences",
-    "description": "preferences for each JS9 image",
+    "description": "Preferences for each displayed image",
     "properties": {
 	"colormap": {
 	    "type": "string",
@@ -68,17 +68,9 @@ JS9.Prefs.imagesSchema = {
 	    "type": "string",
 	    "helper": "default logical coordinate system"
 	},
-	"alpha": {
+	"opacity": {
 	    "type": "number",
-	    "helper": "alpha for images"
-	},
-	"alpha1": {
-	    "type": "number",
-	    "helper": "alpha for masked pixels"
-	},
-	"alpha2": {
-	    "type": "number",
-	    "helper": "alpha for unmasked pixels"
+	    "helper": "opacity for images (0.0 to 1.0)"
 	},
 	"zoom": {
 	    "type": "number",
@@ -110,7 +102,7 @@ JS9.Prefs.imagesSchema = {
     
 JS9.Prefs.regionsSchema = {
     "title": "Region Preferences",
-    "description": "preferences for each JS9 region",
+    "description": "Preferences for each displayed region",
     "type": "object",
     "properties": {
 	"iradius": {
@@ -195,46 +187,151 @@ JS9.Prefs.regionsSchema = {
 // schema for each source
 JS9.Prefs.fitsSchema = {
     "title": "FITS Preferences",
-    "description": "FITS preferences in JS9",
+    "description": "Preferences for processing FITS files",
     "properties": {
 	"extlist": {
 	    "type": "string",
-	    "helper": "default binary table extensions for drag/drop"
+	    "helper": "default binary table extensions"
 	},
 	"xdim": {
 	    "type": "string",
-	    "helper": "x dimension of extracted image"
+	    "helper": "x dim of image section from table"
 	},
 	"ydim": {
 	    "type": "string",
-	    "helper": "y dimension of extracted image"
+	    "helper": "y dim of image section from table"
 	},
+	"bin": {
+	    "type": "string",
+	    "helper": "bin factor for tables"
+	},
+	"ixdim": {
+	    "type": "string",
+	    "helper": "x dim of image section from image"
+	},
+	"iydim": {
+	    "type": "string",
+	    "helper": "y dim of image section from table"
+	},
+	"ibin": {
+	    "type": "string",
+	    "helper": "bin factor for images"
+	},
+	"clear": {
+	    "type": "string",
+	    "helper": "clear image's virtual file memory"
+	}
+    }
+};
+
+// catalogs schema
+JS9.Prefs.catalogsSchema = {
+    "title": "Catalogs Preferences",
+    "description": "Preferences for loading tab-delimited catalogs",
+    "properties": {
+	"ras": {
+	    "type": "mobject",
+	    "helper": "RA patterns to look for in table"
+	},
+	"decs": {
+	    "type": "mobject",
+	    "helper": "Dec patterns to look for in table"
+	},
+	"wcssys": {
+	    "type": "string",
+	    "helper": "wcs system of catalog"
+	},
+	"shape": {
+	    "type": "string",
+	    "helper": "shape of objects"
+	},
+	"color": {
+	    "type": "string",
+	    "helper": "color of objects"
+	},
+	"width": {
+	    "type": "number",
+	    "helper": "width of box objects"
+	},
+	"height": {
+	    "type": "number",
+	    "helper": "height of box objects"
+	},
+	"radius": {
+	    "type": "number",
+	    "helper": "radius of circle objects"
+	},
+	"r1": {
+	    "type": "number",
+	    "helper": "r1 of ellipse objects"
+	},
+	"r2": {
+	    "type": "number",
+	    "helper": "r2 of ellipse objects"
+	},
+	"tooltip": {
+	    "type": "string",
+	    "helper": "tooltip format for objects"
+	},
+	"skip": {
+	    "type": "string",
+	    "helper": "comment character in table"
+	}
+    }
+};
+
+// display schema for the page
+JS9.Prefs.displaysSchema = {
+    "title": "Display Preferences",
+    "description": "Preferences for each JS9 display in this page",
+    "properties": {
+	"topColormaps": {
+	    "type": "mobject",
+	    "helper": "array of top-level colormaps"
+	},
+	"infoBox": {
+	    "type": "mobject",
+	    "helper": "array of infoBox items to display"
+	},
+	"mouseActions": {
+	    "type": "mobject",
+	    "helper": "array of mouse actions"
+	},
+	"touchActions": {
+	    "type": "mobject",
+	    "helper": "array of touch actions"
+	},
+	"keyboardActions": {
+	    "type": "mobject",
+	    "helper": "object containing keyboard actions"
+	},
+	"mousetouchZoom": {
+	    "type": "boolean",
+	    "helper": "scroll/pinch to zoom?"
+	},
+	"fits2fits": {
+	    "type": "string",
+	    "helper": "make rep file?: true,false,size>N"
+	},
+	"fits2png": {
+	    "type": "boolean",
+	    "helper": "convert FITS to PNG rep files?"
+	}
     }
 };
 
 // source object for preferences
 JS9.Prefs.sources = [
-    {name: "images",  schema: JS9.Prefs.imagesSchema},
-    {name: "regions", schema: JS9.Prefs.regionsSchema},
-    {name: "fits",    schema: JS9.Prefs.fitsSchema}
+    {name: "images",   schema: JS9.Prefs.imagesSchema},
+    {name: "regions",  schema: JS9.Prefs.regionsSchema},
+    {name: "fits",     schema: JS9.Prefs.fitsSchema},
+    {name: "catalogs", schema: JS9.Prefs.catalogsSchema},
+    {name: "displays", schema: JS9.Prefs.displaysSchema}
 ];
 
 // init preference plugin
-JS9.Prefs.init = function(width, height){
+JS9.Prefs.init = function(){
     var i, s, obj, key, props, sources, source, id, pid, html, prompt;
-    // set width and height on div
-    this.width = this.divjq.attr("data-width");
-    if( !this.width  ){
-	this.width  = width  || JS9.Prefs.WIDTH;
-    }
-    this.divjq.css("width", this.width);
-    this.width = parseInt(this.divjq.css("width"), 10);
-    this.height = this.divjq.attr("data-height");
-    if( !this.height ){
-	this.height = height || JS9.Prefs.HEIGHT;
-    }
-    this.divjq.css("height", this.height);
-    this.height = parseInt(this.divjq.css("height"), 10);
     // create the div containing one tab for each of the sources
     sources = JS9.Prefs.sources;
     pid = this.id + 'prefsTabs';
@@ -249,30 +346,61 @@ JS9.Prefs.init = function(width, height){
 			id + "Div", source.name);
     }
     html += "</ul>";
-    html += "<br style='clear:left'/></div></div><p>\n";
+    html += "<br style='clear:left'></div></div><p>\n";
     // create each param form (displayed by clicking each tab)
     for(i=0; i<sources.length; i++){
 	source = sources[i];
 	id = this.id + JS9.Prefs.CLASS + JS9.Prefs.NAME + source.name;
 	// source-specific pre-processing
 	switch( source.name ){
-	case "fits":
-	    // make up "nicer" option values from raw object
-	    source.data = {extlist: JS9.fits.options.extlist,
-			   xdim: JS9.fits.options.table.nx, 
-			   ydim: JS9.fits.options.table.ny};
+	case "images":
+	    source.data = JS9.imageOpts;
 	    break;
 	case "regions":
 	    source.data = JS9.Regions.opts;
 	    break;
-	case "images":
-	    source.data = JS9.imageOpts;
+	case "fits":
+	    // make up "nicer" option values from raw object
+	    source.data = {extlist: JS9.fits.options.extlist,
+			   xdim: JS9.fits.options.table.xdim,
+			   ydim: JS9.fits.options.table.ydim,
+			   bin: JS9.fits.options.table.bin,
+			   ixdim: JS9.fits.options.image.xdim,
+			   iydim: JS9.fits.options.image.ydim,
+			   ibin: JS9.fits.options.image.bin,
+			   clear: JS9.globalOpts.clearImageMemory};
+	    break;
+	case "catalogs":
+	    source.data = {ras: JS9.globalOpts.catalogs.ras,
+			   decs: JS9.globalOpts.catalogs.decs,
+			   wcssys: JS9.globalOpts.catalogs.wcssys,
+			   shape: JS9.globalOpts.catalogs.shape,
+			   color: JS9.globalOpts.catalogs.color,
+			   width: JS9.globalOpts.catalogs.width,
+			   height: JS9.globalOpts.catalogs.height,
+			   radius: JS9.globalOpts.catalogs.radius,
+			   r1: JS9.globalOpts.catalogs.r1,
+			   r2: JS9.globalOpts.catalogs.r2,
+			   tooltip: JS9.globalOpts.catalogs.tooltip,
+			   skip: JS9.globalOpts.catalogs.skip};
+	    break;
+	case "displays":
+	    source.data = {fits2png: JS9.globalOpts.fits2png,
+			   fits2fits: JS9.globalOpts.fits2fits,
+			   topColormaps: JS9.globalOpts.topColormaps,
+			   mouseActions: JS9.globalOpts.mouseActions,
+			   touchActions: JS9.globalOpts.touchActions,
+			   keyboardActions: JS9.globalOpts.keyboardActions,
+			   mousetouchZoom: JS9.globalOpts.mousetouchZoom,
+			   infoBox: JS9.globalOpts.infoBox};
 	    break;
 	default:
 	    break;
 	}
 	html += sprintf("<div id='%s' class='tabcontent'>", id + "Div");
-	html += sprintf("<form id='%s' class='js9AnalysisForm' style='max-height: %spx; overflow: scroll'>", id + "Form", this.height-90);
+	html += sprintf("<form id='%s' class='js9AnalysisForm' style='max-height: %spx; overflow: hidden'>", id + "Form", this.height-90);
+	html += sprintf("<center><b>%s</b></center><p>",
+			source.schema.description);
 	props = source.schema.properties;
 	for( key in props ){
 	    if( props.hasOwnProperty(key) ){
@@ -285,15 +413,23 @@ JS9.Prefs.init = function(width, height){
 		    } else {
 			s = "";
 		    }
-		    html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2'><input type='checkbox' name='%s' value='true' %s></span><span class='column_R3L'>%s</span></div>", prompt, key, s, obj.helper);
+		    html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2'><input type='checkbox' name='%s' value='true' %s></span><span class='column_R4l'>%s</span></div>", prompt, key, s, obj.helper);
 		    break;
 		default:
 		    if( typeof source.data[key] === "object" ){
-			s = JSON.stringify(source.data[key]);
+			if( obj.type === "mobject" ){
+			    s = JSON.stringify(source.data[key], null, 2);
+			} else {
+			    s = JSON.stringify(source.data[key]);
+			}
 		    } else {
 			s = source.data[key];
 		    }
-		    html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2'><input type='text' name='%s' class='text_R' value='%s'/></span><span class='column_R3L'>%s</span></div>", prompt, key, s, obj.helper);
+		    if( obj.type === "mobject" ){
+			html += sprintf("<div class='linegroup' style='height:64px'><span class='column_R1'><b>%s</b></span><span class='column_R2l'><textarea name='%s' class='text_R' rows='5' style='overflow-x: hidden; resize: none'>%s</textarea></span><span class='column_R4l'>%s</span></div>", prompt, key, s, obj.helper);
+		    } else {
+			html += sprintf("<div class='linegroup'><span class='column_R1'><b>%s</b></span><span class='column_R2l'><input type='text' name='%s' class='text_R' value='%s'></span><span class='column_R4l'>%s</span></div>", prompt, key, s, obj.helper);
+		    }
 		    break;
 		}
 	    }
@@ -312,6 +448,8 @@ JS9.Prefs.init = function(width, height){
 	html += "</form>";
 	html += "</div>";
     }
+    // allow scrolling on the plugin
+    this.divjq.addClass("JS9PluginScrolling");
     // set the html for this div
     this.divjq.html(html);
     // for each source, set data values that we will need in button callbacks
@@ -385,58 +523,55 @@ JS9.Prefs.deleteForm = function(){
 };
 
 // process new preferences in the preference form
+// eslint-disable-next-line no-unused-vars
 JS9.Prefs.processForm = function(source, arr, display, winid){
     var i, j, key , val, obj, rlayer;
     var len = arr.length;
     // source-specific pre-processing
     switch( source.name ){
-    case "fits":
-	obj = JS9.fits.options;
+    case "images":
+	obj = JS9.imageOpts;
 	break;
     case "regions":
 	obj = JS9.Regions.opts;
 	break;
-    case "images":
-	obj = JS9.imageOpts;
+    case "fits":
+	obj = JS9.fits.options;
+	break;
+    case "catalogs":
+	obj = JS9.globalOpts.catalogs;
+	break;
+    case "displays":
+	obj = JS9.globalOpts;
 	break;
     }
     for(i=0; i<len; i++){
 	key = arr[i].name;
 	val = arr[i].value;
+	if( val === "true" ){
+	    val = true;
+	}
+	if( val === "false" ){
+	    val = false;
+	}
 	switch( typeof obj[key] ){
 	case "boolean":
-	    if( val === "true" ){
-		val = true;
-	    }
-	    if( val === "false" ){
-		val = false;
-	    }
 	    break;
 	case "number":
 	    val = parseFloat(val);
 	    break;
 	case "object":
-	    val = JSON.parse(val);
+	    try{ val = JSON.parse(val); }
+	    catch(e){ JS9.error("invalid JSON (see jsonlint.com): "+val, e); }
 	    break;
 	default:
 	    break;
 	}
 	if( obj[key] !== val ){
 	    switch( source.name ){
-	    case "fits":
-	        // put our "nicer" option values back into raw object
-	        // note that the values are still strings
-	        switch(key){
- 	        case "xdim":
-		    obj.table.nx = parseFloat(val);
-	            break;
-	        case "ydim":
-		    obj.table.ny = parseFloat(val);
-	            break;
-	        default:
-	            obj[key] = val;
-	            break;
-	        }
+	    case "images":
+		// set new option value
+	        obj[key] = val;
 	        break;
 	    case "regions":
 		// set new option value
@@ -448,6 +583,57 @@ JS9.Prefs.processForm = function(source, arr, display, winid){
 			rlayer.opts[key] = val;
 		    }
 		}
+		break;
+	    case "fits":
+	        // put our "nicer" option values back into raw object
+	        // note that the values are still strings
+	        switch(key){
+ 	        case "xdim":
+		    obj.table.xdim = Math.floor(parseFloat(val));
+	            break;
+	        case "ydim":
+		    obj.table.ydim = Math.floor(parseFloat(val));
+	            break;
+	        case "bin":
+		    obj.table.bin = Math.floor(parseFloat(val));
+	            break;
+	        case "ixdim":
+		    obj.image.xdim = Math.floor(parseFloat(val));
+	            break;
+	        case "iydim":
+		    obj.image.ydim = Math.floor(parseFloat(val));
+	            break;
+	        case "ibin":
+		    obj.image.bin = Math.floor(parseFloat(val));
+	            break;
+		case "clear":
+		    JS9.globalOpts.clearImageMemory = val;
+		    break;
+	        default:
+	            obj[key] = val;
+	            break;
+	        }
+		source.data[key] = val;
+	        break;
+	    case "catalogs":
+	        switch(key){
+ 	        case "skip":
+		    // add back blank lines
+		    obj[key] = val + "\n";
+		    break;
+		default:
+	            obj[key] = val;
+		    break;
+		}
+		break;
+	    case "displays":
+	        // set new option value
+	        obj[key] = val;
+		// change option value in this display as well
+		for(j=0; j<JS9.displays.length; j++){
+		    JS9.displays[j][key] = val;
+		}
+		source.data[key] = val;
 		break;
 	    default:
 		// set new option value
@@ -462,5 +648,6 @@ JS9.Prefs.processForm = function(source, arr, display, winid){
 JS9.RegisterPlugin(JS9.Prefs.CLASS, JS9.Prefs.NAME, JS9.Prefs.init,
 		   {menuItem: "Preferences",
 		    help: "help/prefs.html",
-		    winTitle: "JS9 User Preferences",
+		    winTitle: "User Preferences",
+		    winResize: true,
 		    winDims: [JS9.Prefs.WIDTH, JS9.Prefs.HEIGHT]});

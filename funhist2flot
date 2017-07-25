@@ -1,19 +1,19 @@
 #!/bin/sh
+# set -x
 
 LC_NUMERIC=en_US.ISO8859-1
 export LC_NUMERIC
 
-files="None"
+annotations=""
+title="Histogram Plot"
 while [ x"$1" != x ]; do
     case $1 in
-	-title)
-	    title="$2"
-	    shift
+	-a) shift
+	    annotations="$1"
 	    shift
 	    continue;;
-	-file)
-            files="$2"
-	    shift
+	-t) shift
+	    title="$1"
 	    shift
 	    continue;;
 	*)  
@@ -21,36 +21,20 @@ while [ x"$1" != x ]; do
     esac
 done
 
-awk -v title="$title" '
+awk -v title="${title}" -v annotations="${annotations}" '
 BEGIN{
   mode=1
-  initparam=0
   npts=0
 }
 mode==1{
-  if( initparam == 0 ){
-    if( files == "None" ){
-      files=""
-      dofile="true"
-    }
-    else{
-      dofile="false"
-    }
-    initparam=1
-    if( title == "" ){
-      title = "Funhist"
-    }
-  }
-  if( dofile == "true" && $1 == "#" && $2 == "data" && $3 == "file:" ){
-    if( files != "" ) files = files ","
-    files = files $4
-  }
-  else if( $1 == "#" && $2 == "column:" ){
+  if( $1 == "#" && $2 == "column:" ){
     column = $3
   }
   else if( $1 == "------" ){
-    gsub(/"/,"\\\"", files)
-    printf "{\042color\042: \042blue\042, \042label\042 : \042counts vs %s_bin\042, ", column
+    printf "{\042color\042: \042blue\042, \042label\042 : \042%s\042, ", title
+    if( annotations != "" ){
+        printf "\042annotations\042 : {\042data\042 : [%s]}, ", annotations
+    }
     mode = 2
     next
   }
@@ -75,5 +59,5 @@ END{
     printf "]}"
   }
 }
-' files="$files"
+'
 exit 0

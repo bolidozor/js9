@@ -1,4 +1,4 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
 /*globals $, JS9, Option */ 
 
@@ -71,7 +71,8 @@
 	var form = $(div).find(".JS9Archive-form")[0];
 
 	if ( form.object.value !== "" ) {
-	    var simbad = encodeURI('http://hopper.si.edu/http/simbad?' + form.object.value);
+	    var simurl = JS9.globalOpts.simbadProxy || "http://js9.si.edu/cgi-bin/simbad-proxy.cgi";
+	    var simbad = encodeURI(simurl + '?' + form.object.value);
 
 	    xhr({ url: simbad, title: "Name", status: status }, function(e, xhr) {
 		var coords = xhr.responseText.trim().split(" ");
@@ -86,7 +87,7 @@
 	} else {
 	    var im = JS9.GetImage({display: display});
 
-	    var coords = JS9.pix2wcs(im.wcs, im.raw.header.NAXIS1/2, im.raw.header.NAXIS2/2).split(/ +/);
+	    var coords = JS9.pix2wcs(im.raw.wcs, im.raw.header.NAXIS1/2, im.raw.header.NAXIS2/2).split(/ +/);
 
 	    var c0     = JS9.PixToWCS(im.raw.header.NAXIS1/2+1, im.raw.header.NAXIS2/2+1, {display: im});
 	    //var coords = c0.str.split(" ");
@@ -138,22 +139,22 @@
 	    <select class="service-menu"></select>\
 	    <select class="server-menu"></select>\
 	    <select class="source-menu"></select>\
-	    <span style="float: right;"><input type=button value="Set RA/Dec" class="get-ra-dec"><input type=button value="Retrieve Data" class="service-go"></span>	\
+	    <span style="float: right;"><input type=button value="Set RA/Dec" class="get-ra-dec">&nbsp;&nbsp;<input type=button value="Retrieve Data" class="service-go"></span>	\
 	    <p>											\
 												\
 	    <table width="98%">									\
-	    <tr><td> Object: </td> <td> <input type=text name=object size=10> </td>		\
+	    <tr><td> Object: </td> <td> <input type=text name=object size=12> </td>		\
 		<td></td>									\
 		<td></td>									\
 		<td>&nbsp;&nbsp;</td>								\
 		<td> <input type=checkbox name=gzip> Use Compression</td>			\
 	    </tr>										\
-	    <tr><td> RA:  	</td><td>	<input type=text name=ra	size=10> </td>	\
-		<td> Dec: 	</td><td>	<input type=text name=dec	size=10> </td>	\
+	    <tr><td> RA:  	</td><td>	<input type=text name=ra	size=12> </td>	\
+		<td> Dec: 	</td><td>	<input type=text name=dec	size=12> </td>	\
 		<td></td>									\
 		<td> <input type=checkbox name=CORS checked> Use CORS Proxy</td>		\
-	    <tr><td> Width: </td><td>	<input type=text name=width	size=10 value=15> </td>	\
-		<td> Height: </td><td>	<input type=text name=height	size=10 value=15> </td>	\
+	    <tr><td> Width: </td><td>	<input type=text name=width	size=12 value=15> </td>	\
+		<td> Height: </td><td>	<input type=text name=height	size=12 value=15> </td>	\
 	    </tr>										\
 	    </table>										\
 	    <div class=controls></div>								\
@@ -221,6 +222,9 @@ var strtod   = require("./strtod");
 var template = require("./template");
 var xhr      = require("./xhr");
 
+// use starbase code in js9archive? (otherwise use code in JS9)
+var use_internal = false;
+
 function CatalogService(params) {
     RemoteService.Register(params.value, this);
 
@@ -228,7 +232,7 @@ function CatalogService(params) {
     this.params = params;
 
     this.table2cat = function(im, table) {
-	var i;
+	var i, j;
 	var shape = this.params.shape;
 
 	var xcol = table[this.params.xcol];
@@ -241,40 +245,46 @@ function CatalogService(params) {
 	var pos_func = function(im, x, y) {
 	    var coords = JS9.WCSToPix(x, y, {display: im});
 
-	    return { x: coords.x, y: coords.y };
+	    if( coords ){
+		return { x: coords.x, y: coords.y };
+	    }
+	    return null;
 	};
 	var sizefunc;
 
 	switch ( shape ) {
 	 case "box":
 	    sizefunc = function(row) {
-		    return { width: 5, height: 5 };
+		    return { width: 7, height: 7 };
 		};
 	    break;
 	 case "circle":
 	    sizefunc = function(row) {
-		    return { radius: 2.5 };
+		    return { radius: 3.5};
 		};
 	    break;
 	 case "ellipse":
 	    sizefunc = function(row) {
-		    return { width: 5, height: 5 };
+		    return { width: 7, height: 7 };
 		};
 	    break;
 	}
 
 	var regs = [], pos, siz, reg;
-	for ( i = 0; i < table.data.length; i++ ) {
+	for ( i = 0, j = 0; i < table.data.length; i++ ) {
 	    pos = pos_func(im, table.data[i][xcol]*15, table.data[i][ycol]);
-	    siz = sizefunc(im, table.data[i][wcol], table.data[i][hcol]);
+	    if( pos ){
+		siz = sizefunc(im, table.data[i][wcol], table.data[i][hcol]);
 
-	    reg = {   id: i.toString(), shape: shape
-			, x: pos.x, y: pos.y
-			, width: siz.width, height: siz.height, radius: siz.radius
-			, angle: 0
-		};
+		reg = {   id: i.toString(), shape: shape
+			  , x: pos.x, y: pos.y
+			  , width: siz.width, height: siz.height, radius: siz.radius
+			  , angle: 0
+		          , data: {ra: table.data[i][xcol]*15, dec: table.data[i][ycol]}
+		      };
 
-	    regs[i] = reg;
+		regs[j++] = reg;
+	    }
 	}
 
 	return regs;
@@ -290,15 +300,29 @@ function CatalogService(params) {
 	var catalog = this;
 
 	var reply = xhr({ url: url, title: "Catalog", status: messages, CORS: values.CORS }, function(e) {
-	    var table = new Starbase(reply.responseText, { type: { default: strtod }, units: values.units });
-	    var im    = JS9.GetImage({display: values.display});
+	    var table, im, gopts, opts, shapes;
+	    im = JS9.GetImage({display: values.display});
+	    if( use_internal ){
+		table = new Starbase(reply.responseText, {type: {default: strtod}, units: values.units, skip: "#\n"});
+		gopts = $.extend(true, {}, JS9.Catalogs.opts, {tooltip: "$xreg.data.ra $xreg.data.dec"});
+		opts = {color: "yellow"};
 
-	    JS9.NewShapeLayer(values.name, JS9.Catalogs.opts, {display: im});
-	    JS9.RemoveShapes(values.name, {display: im});
+		if( !table.data.length ){
+		    JS9.error("no catalog objects found");
+		}
 
-	    var shapes = catalog.table2cat(im, table);
+		JS9.NewShapeLayer(values.name, gopts, {display: im});
+		JS9.RemoveShapes(values.name, {display: im});
 
-	    JS9.AddShapes(values.name, shapes, {color: "yellow"}, {display: im});
+		shapes = catalog.table2cat(im, table);
+
+		JS9.AddShapes(values.name, shapes, opts, {display: im});
+	    } else {
+		table = reply.responseText;
+		gopts = {};
+		gopts.units = values.units;
+		JS9.LoadCatalog(values.name, table, gopts, {display: im});
+	    }
 	});
     };
 }
@@ -339,7 +363,7 @@ var CatalogService = require("./catalog-service");
 	});
 
 	var vizCat = new CatalogService({
-	      text: "Vizier"
+	      text: "VizieR"
 	    , value: "vizCat"		
 	    , surveys: [   { value: "II/246",		text: "2MASS"				}
 			 , { value: "2MASX",		text: "2MASS Extended Source"		}
@@ -368,7 +392,7 @@ var CatalogService = require("./catalog-service");
 		    values.name = values.source + "@" + this.text;
 		}
 
-	    , shape: "circle"
+	    , shape: "box"
 	    , xcol:  "_RAJ2000", ycol: "_DEJ2000"
 	
 	});
@@ -404,6 +428,7 @@ function ImageService(params) {
 	    if ( params.handler === undefined ) {
 		var blob      = new Blob([xhr.response]);
 		blob.name = values.name;
+
 		JS9.fits.handleFITSFile(blob, { display: display });
 	    } else {
 	    	params.handler(e, xhr, params, values);
@@ -427,10 +452,11 @@ var ImageService = require("./image-service");
 	    var name;
 
 	    if ( values.name !== "" ) {
-		name = values.name + " " + values.source;
+		name = values.source + "_" + values.name;
 	    } else {
-	        name = values.source + " " + values.r + plus + values.d;
+	        name = values.source + "_" + values.r + plus + values.d;
 	    }
+	    name = name.replace(/\s+/g,"_") + ".fits";
 
 	    return name;
 	};
@@ -449,13 +475,13 @@ var ImageService = require("./image-service");
 	});
 
 	var stsDSS = new ImageService({
-	      text: "DSS@Stsci"
+	      text: "DSS@STScI"
 	    , value: "stsDSS"
-	    , surveys: [   { value: "poss2ukstu_ir",	text: "StSci DSS2 IR"	}
-			 , { value: "poss2ukstu_red",	text: "StSci DSS2 Red"	}
-			 , { value: "poss2ukstu_blue",	text: "StSci DSS2 Blue"	}
-			 , { value: "poss1_red", 	text: "StSci DSS1 Red"	}
-			 , { value: "poss1_blue",	text: "StSci DSS1 Blue"	}
+	    , surveys: [   { value: "poss2ukstu_ir",	text: "STScI DSS2 IR"	}
+			 , { value: "poss2ukstu_red",	text: "STScI DSS2 Red"	}
+			 , { value: "poss2ukstu_blue",	text: "STScI DSS2 Blue"	}
+			 , { value: "poss1_red", 	text: "STScI DSS1 Red"	}
+			 , { value: "poss1_blue",	text: "STScI DSS1 Blue"	}
 			]
 	    , url: "http://stdatu.stsci.edu/cgi-bin/dss_search?r={r}&d={d}&w={w}&h={h}&e={e}&c={c}&v={s}&f=fits"
 	    , calc: function(values) {
@@ -501,29 +527,29 @@ var ImageService = require("./image-service");
 		}
 	});
 
-	var dasch  = new ImageService({
-	      text: "DASCH"
-	    , value: "dasch"
-	    , surveys: [   { value: "plates", 		text: "Plates"		} ]
-
-	    , url: "http://dasch.rc.fas.harvard.edu/showtext.php?listflag=0&dateflag=dateform=j%20&coordflag=&radius=200&daterange=&seriesflag=&plateNumberflag=&classflag=&typeflag=%20-T%20wcsfit%20&pessimisticflag=&bflag=-j&nstars=5000&locstring=12:00:00%2030:00:00%20J2000"
-
-	    , calc: function(values) {
-		    values.radius = Math.min(Math.floor(Math.sqrt(values.w*values.w+values.h*values.h)*60), 600);
-		    values.name   = imageName(values);
-	    }
-
-	    , picker: "<input type=button value='pick' class='picker'>"
-	    , controls: "<tr>><td>Series</td>   <td><input type=text size=10 name=series></td>		\n\
-	    		      <td>Plate No</td> <td><input type=text size=10 name=plate></td>           \n\
-	    		      <td>Class</td>    <td><input type=text size=10 name=class></td></tr>      \n\
-	    		  <tr><td>Date From</td><td><input type=text size=10 name=datefr></td>          \n\
-	    		      <td>Date To</td>  <td><input type=text size=10 name=dateto></td></tr>      \n\
-			 "
-	    , handler: function (e, xhr, params, values) {
-	    	
-	    }
-	});
+//	var dasch  = new ImageService({
+//	      text: "DASCH"
+//	    , value: "dasch"
+//	    , surveys: [   { value: "plates", 		text: "Plates"		} ]
+//
+//	    , url: "http://dasch.rc.fas.harvard.edu/showtext.php?listflag=0&dateflag=dateform=j%20&coordflag=&radius=200&daterange=&seriesflag=&plateNumberflag=&classflag=&typeflag=%20-T%20wcsfit%20&pessimisticflag=&bflag=-j&nstars=5000&locstring=12:00:00%2030:00:00%20J2000"
+//
+//	    , calc: function(values) {
+//		    values.radius = Math.min(Math.floor(Math.sqrt(values.w*values.w+values.h*values.h)*60), 600);
+//		    values.name   = imageName(values);
+//	    }
+//
+//	    , picker: "<input type=button value='pick' class='picker'>"
+//	    , controls: "<tr>><td>Series</td>   <td><input type=text size=10 name=series></td>		\n\
+//	    		      <td>Plate No</td> <td><input type=text size=10 name=plate></td>           \n\
+//	    		      <td>Class</td>    <td><input type=text size=10 name=class></td></tr>      \n\
+//	    		  <tr><td>Date From</td><td><input type=text size=10 name=datefr></td>          \n\
+//	    		      <td>Date To</td>  <td><input type=text size=10 name=dateto></td></tr>      \n\
+//			 "
+//	    , handler: function (e, xhr, params, values) {
+//
+//	    }
+//	});
 
 //	var cds = new ImageService({
 //	      text: "CDS Aladin Server"
@@ -545,7 +571,7 @@ var ImageService = require("./image-service");
 //	    , url: "http://skys.gsfc.nasa.gov/cgi-bin/images?VCOORD={ra},{dec}&SURVEY={s}&SFACTR={size}&RETURN=FITS"
 //	    , calc: function(values) {
 //		    values.size = Math.floor((values.w+values.h)/2)
-//		    values.name = values.name + " " + values.source;
+//		    values.name = values.name + "_" + values.source;
 //		}
 //	})
 
@@ -567,7 +593,6 @@ exports.Register = function(name, obj) {
 
 "use strict";
 
-
 function I(x) { return x; }
 
 function starbase_Dashline(dash) {
@@ -582,8 +607,10 @@ function starbase_Dashline(dash) {
     return i;
 }
 
-function Starbase(data, options) {
-    var i, j;
+function Starbase(data, opts) {
+    var i, j, skips, done;
+
+    opts = opts || {};
 
     this.head = {};
     this.type = [];
@@ -592,12 +619,23 @@ function Starbase(data, options) {
     data = data.replace(/\s+$/,"").split("\n");
     var line = 0;
 
-    if ( options && options.skip ) {
-	while ( data[line][0] === options.skip ) { line++; }
+    if ( opts.skip ) {
+	skips = opts.skip.split("");
+	for(; line < data.length; line++){
+	    if( (skips[0] !== data[line][0])             &&
+		(skips[1] !== "\n" || data[line] !== "") ){
+		break;
+	    }
+	}
+    }
+
+    // make sure we have a header to process
+    if( (data[line] === undefined) || (data[line+1] === undefined) ){
+	return;
     }
 
     this.headline = data[line++].trim().split(/ *\t */);
-    if ( options.units ) {
+    if ( opts.units ) {
 	this.unitline = data[line++].trim().split(/ *\t */);
     }
     this.dashline = data[line++].trim().split(/ *\t */);
@@ -608,7 +646,7 @@ function Starbase(data, options) {
     //
     while ( dashes === 0 || dashes !== this.headline.length ) {
 
-	if ( !options.units ) {
+	if ( !opts.units ) {
 	    this.headline = this.dashline;
 	} else {
 	    this.headline = this.unitline;
@@ -617,18 +655,17 @@ function Starbase(data, options) {
 
 	this.dashline = data[line++].trim().split(/ *\t */);
 
-
 	dashes = starbase_Dashline(this.dashline);
     }
 
     // Create a vector of type converters
     //
     for ( i = 0; i < this.headline.length; i++ ) {
-	if ( options && options.type && options.type[this.headline[i]] ) {
-	    this.type[i] = options.type[this.headline[i]];
+	if ( opts.type && opts.type[this.headline[i]] ) {
+	    this.type[i] = opts.type[this.headline[i]];
 	} else {
-	    if ( options && options.type && options.type.default ) {
-		this.type[i] = options.type.default;
+	    if ( opts.type && opts.type.default ) {
+		this.type[i] = opts.type.default;
 	    } else {
 		this.type[i] = I;
 	    }
@@ -638,6 +675,12 @@ function Starbase(data, options) {
     // Read the data in and convert to type[]
     //
     for ( j = 0; line < data.length; line++, j++ ) {
+	// skip means end of data
+	if( (skips[0] === data[line][0])             ||
+	    (skips[1] === "\n" && data[line] === "") ){
+	    break;
+	}
+
 	this.data[j] = data[line].split('\t');
 
 	for ( i = 0; i < this.data[j].length; i++ ) {
@@ -771,6 +814,8 @@ module.exports = template;
 	var status = params.status;
 	var title = "";
 
+	var corsurl = JS9.globalOpts.corsProxy || "http://js9.si.edu/cgi-bin/CORS-proxy.cgi";
+
 	if ( params.CORS ) {
 	    params.url = params.url.replace(/\?/g, "@");
 	    params.url = params.url.replace(/&/g, "!");
@@ -778,7 +823,11 @@ module.exports = template;
 
 	    params.url = encodeURI(params.url);
 
-	    params.url="http://hopper.si.edu/http/CORS-proxy?Q=" + params.url;
+	    params.url= corsurl + "?Q=" + params.url;
+	}
+
+	if( JS9.DEBUG > 1 ){
+	    console.log("archive/catalog url: %s", params.url);
 	}
 
 	var _xhr = new XMLHttpRequest();
@@ -802,7 +851,6 @@ module.exports = template;
 	    if ( this.readyState === 4 ) {
 		if ( this.status === 200 || this.status === 0 ) {
 		    if ( status !== undefined ) { status(""); }
-
 		    func(e, this);
 		}
 	    }
@@ -815,4 +863,5 @@ module.exports = template;
 module.exports = xhr;
 
 
-},{}]},{},[1])
+},{}]},{},[1]);
+

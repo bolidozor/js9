@@ -4,9 +4,11 @@
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=Edge;chrome=1" > 
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link type="image/x-icon" rel="shortcut icon" href="./favicon.ico">
   <link type="text/css" rel="stylesheet" href="js9support.css">
   <link type="text/css" rel="stylesheet" href="js9.css">
+  <script type="text/javascript" src="js9prefs.js"></script>
   <script type="text/javascript" src="js9support.min.js"></script>
   <script type="text/javascript" src="js9.min.js"></script>
   <script type="text/javascript" src="js9plugins.js"></script>
@@ -20,10 +22,10 @@
   <title>JS9 sizes</title>
 </head>
 <body onload="JS9.Preload(
-    'png/casa.png', {colormap: 'red', scale: 'log', display: 'JS9'},
-    'png/m13.png', {scale:'linear', colormap:'heat', display: 'JS9-128'},
+    'fits/casa.fits.gz', {parentFile: 'fits/casa.fits', colormap: 'red', scale: 'log', display: 'JS9'},
+    'fits/m13.fits', {scale:'linear', colormap:'heat', display: 'JS9-128'},
     'fits/ngc1316.fits', {zoom: 'toFit', scale:'linear', colormap: 'cool', display: 'JS9-256'},
-    'png/ngkper.png', {scale: 'log', display: 'JS9-1024'});">
+    'fits/ngkper.fits.gz', {parentFile: 'fits/ngkper.fits', scale: 'log', display: 'JS9-1024'});">
     <center><font size="+1">
         <b>JS9 Demo: specifying width and height for JS9 displays</b>
     </font></center>
@@ -51,17 +53,19 @@
     <p>
 
     <div id="size256">
-    <div class="JS9Menubar" id="JS9-256_Menubar" data-width="256px" data-height="54px"></div>
+    <div class="JS9Menubar" id="JS9-256_Menubar" data-buttonClass="JS9Button-flat" data-backgroundColor="lightblue" data-width="256px" data-height="64px"></div>
     <div class="JS9" id="JS9-256" data-width="256px" data-height="256px"></div>
+    <div class="JS9Colorbar" id="JS9-256_Colorbar" data-width="256px"></div>
     </div>
     <p>
     <div id="sizedefault">
-    <div class="JS9Menubar"></div>
+    <div class="JS9Menubar" data-buttonClass="JS9Button-border"></div>
     <div class="JS9"></div>
+    <div class="JS9Colorbar"></div>
     </div>
     <p>
     <div id="size1024">
-    <div class="JS9Menubar" id="JS9-1024_Menubar" data-width="1024px"></div>
+    <div class="JS9Menubar" id="JS9-1024_Menubar" data-backgroundColor="#76D7C4" data-width="1024px"></div>
     <div class="JS9" id="JS9-1024" data-width="1024px" data-height="1024px"></div>
     </div>
 <p>
@@ -70,6 +74,7 @@ JS9 Demos:
 <li><a href='js9basics.html'>JS9 Demo: the basics</a>
 <li><a href='js9bespoke.html'>JS9 Demo: web page control of JS9</a>
 <li><a href='js9sizes.html'>JS9 Demo: setting the size of the JS9 display</a>
+<li><a href='js9large.html'>JS9 Demo: support for large FITS files</a>
 <li><a href='js9plugins.html'>JS9 Demo: adding plugins to JS9</a> 
 <li><a href='js9imexam.html'>JS9 Demo: the imexam plugin for JS9</a> 
 <li><a href='js9blend.html'>JS9 Demo: image blending</a> 
@@ -82,6 +87,7 @@ JS9 Demos:
 <li><a href='js9create.html'>JS9 Demo: creating a JS9 instance dynamically</a> 
 <li><a href='js9preload.html'>JS9 Demo: preloading images into JS9</a>
 <li><a href='js9bitpix.html'>JS9 Demo: displaying different FITS datatypes</a> 
+<li><a href='js9allinone.html'>JS9 Demo: using the all-in-one files</a> 
 <li><a href='js9pngvsfits.html'>JS9 Demo: PNG representation files vs FITS files</a> 
 </ul>
 </body>

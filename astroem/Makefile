@@ -1,19 +1,23 @@
-# output files
-ASTROEM	=	astroem.js
-# ASTROEMEXTRA =	astroem.raw.js.mem
+# main output file name
+ASTROEMJS	=	astroem.js
 
-# where is JS9 directory
-JS9 =		..
+# where is output file is installed
+INSTALLDIR =	../js
 
-# where external JS version of cfitsio is built and stored
-CFITSIO =	../cfitsio
+# astroem: emscripten-compiled bitcode for astronomical libraries
+ASTROEM =	$$HOME/astroem
 
 # emcc compiler flags
 # NB: -O2 is the recommended optimization (not -O3, as of 1/27/2015)
 # can't use mem file: we don't know where the mem file will resides
 # EMFLAGS = 	-g --memory-init-file 0
 # EMFLAGS = 	-DEM -g --memory-init-file 0
-EMFLAGS	= 	-DEM -O2 --memory-init-file 0
+# debugging
+# EMFLAGS	= 	-DEM --memory-init-file 0 -s ASSERTIONS=1
+# debugging with symbols
+# EMFLAGS	= 	-DEM -O0 --memory-init-file 0  -s ASSERTIONS=1
+# production
+EMFLAGS	= 	-DEM -O3 --memory-init-file 0
 
 # support zscale up to 2048 * 2048 * 4-byte images
 # EMOPTS =	-s TOTAL_MEMORY=33554432
@@ -24,8 +28,12 @@ EMFLAGS	= 	-DEM -O2 --memory-init-file 0
 # https://github.com/kripken/emscripten/wiki/Chrome-Perf-Issues
 EMOPTS =	-s TOTAL_MEMORY=67108864 -s ALLOW_MEMORY_GROWTH=1 -s ASM_JS=2
 
-EMEXPORTS =	-s EXPORTED_FUNCTIONS="['_initwcs', '_wcsinfo', '_pix2wcsstr', '_wcs2pixstr', '_reg2wcsstr', '_wcssys', '_wcsunits', '_saostrtod', '_saodtype', '_zscale', '_gzopen', '_gzread', '_gzwrite', '_gzclose', '_gzseek', '_openFITSFile', '_openFITSMem', '_getImageToArray', '_filterTableToImage', '_getHeaderToString', '_closeFITSFile', '_maxFITSMemory', '_ffgerr', '_reproject', '_vls', '_vcat']"
+EMEXPORTS =	-s EXPORTED_FUNCTIONS="['_initwcs', '_freewcs', '_wcsinfo', '_pix2wcsstr', '_wcs2pixstr', '_reg2wcsstr', '_wcssys', '_wcsunits', '_saostrtod', '_saodtype', '_zscale', '_gzopen', '_gzread', '_gzwrite', '_gzclose', '_gzseek',  '_BZ2_bzopen', '_BZ2_bzread', '_BZ2_bzwrite', '_BZ2_bzclose', '_openFITSFile', '_openFITSMem', '_getImageToArray', '_filterTableToImage', '_getHeaderToString', '_closeFITSFile', '_maxFITSMemory', '_ffgerr', '_ffmahd', '_ffghdn','_ffmnhd', '_ffghdt', '_ffgky', '_fffree', '_listhdu', '_tanhdr', '_reproject', '_vls', '_vcat']"
 
+# include directories
+EMINCS =	-I./include
+
+# extras to build emscripten runtime
 EMEXTRAS =	--pre-js pre.js --post-js post.js
 
 # top-level
@@ -34,12 +42,14 @@ OBJS = 		$(SRCS:%.c=%.o)
 
 # wrapper for cfitsio
 JSFITSIO =	./jsfitsio
-JSRCS =  	$(JSFITSIO)/jsfitsio.c
+JSRCS =  	$(JSFITSIO)/jsfitsio.c $(JSFITSIO)/healpix.c \
+		$(JSFITSIO)/listhdu.c
 JOBJS = 	$(JSRCS:%.c=%.o)
 
 # montage (re-project)
 MONTAGE =	./montage
 MSRCS =		$(MONTAGE)/mProjectPP_nomain.c \
+		$(MONTAGE)/mTANHdr_nomain.c \
 		$(MONTAGE)/overlapAreaPP.c \
 		$(MONTAGE)/debugCheck.c \
 		$(MONTAGE)/checkHdr.c \
@@ -56,49 +66,10 @@ UTIL =		./util
 USRCS =		$(UTIL)/strtod.c
 UOBJS = 	$(USRCS:%.c=%.o)
 
-# wcs
-WCS =		./wcs
-WSRCS =  	$(WCS)/wcsinit.c \
-		$(WCS)/wcs.c \
-		$(WCS)/wcscon.c \
-		$(WCS)/hget.c \
-		$(WCS)/hput.c \
-		$(WCS)/iget.c \
-		$(WCS)/worldpos.c \
-		$(WCS)/platepos.c \
-		$(WCS)/tnxpos.c \
-		$(WCS)/zpxpos.c \
-		$(WCS)/dsspos.c \
-		$(WCS)/poly.c \
-		$(WCS)/wcslib.c \
-		$(WCS)/lin.c \
-		$(WCS)/cel.c \
-		$(WCS)/proj.c \
-		$(WCS)/sph.c \
-		$(WCS)/wcstrig.c \
-		$(WCS)/dateutil.c \
-		$(WCS)/distort.c
-WOBJS = 	$(WSRCS:%.c=%.o)
-
 # zlib
-ZLIB =		./zee.js
-ZSRCS = 	$(ZLIB)/adler32.c \
-		$(ZLIB)/compress.c \
-		$(ZLIB)/crc32.c \
-		$(ZLIB)/deflate.c \
-		$(ZLIB)/gzclose.c \
-		$(ZLIB)/gzlib.c \
-		$(ZLIB)/gzread.c \
-		$(ZLIB)/gzwrite.c \
-		$(ZLIB)/infback.c \
-		$(ZLIB)/inffast.c \
-		$(ZLIB)/inflate.c \
-		$(ZLIB)/inftrees.c \
-		$(ZLIB)/trees.c \
-		$(ZLIB)/uncompr.c \
-		$(ZLIB)/zutil.c \
-		$(ZLIB)/zcompress.c \
-		$(ZLIB)/zuncompress.c
+ZEXTRA =		./zextra
+ZSRCS =		$(ZEXTRA)/zcompress.c \
+		$(ZEXTRA)/zuncompress.c
 ZOBJS = 	$(ZSRCS:%.c=%.o)
 
 # iraf zscale
@@ -106,64 +77,53 @@ ZSCALE =	./zscale
 ZSSRCS =	$(ZSCALE)/cdlzscale.c
 ZSOBJS = 	$(ZSSRCS:%.c=%.o)
 
-PKGOBJS =	$(JOBJS) $(MOBJS) $(UOBJS) $(WOBJS) $(ZOBJS) $(ZSOBJS)
-PKGDIRS =	$(JSFITSIO) $(MONTAGE) $(UTIL) $(WCS) $(ZSCALE) $(ZLIB)
+PKGOBJS =	$(JOBJS) $(MOBJS) $(UOBJS) $(ZOBJS) $(ZSOBJS)
+PKGDIRS =	$(JSFITSIO) $(MONTAGE) $(UTIL) $(ZSCALE) $(ZEXTRA)
 
-LIBS =		lib/libcfitsio.a
+LIBS =		lib/libwcs.a lib/libcfitsio.a lib/libz.a lib/libbz2.a
 
 # combine into EMCC command
-EMCC =		emcc $(EMFLAGS) $(EMOPTS) $(EMEXPORTS) $(EMEXTRAS) -I$(CFITSIO)
+EMCC =		emcc $(EMFLAGS) $(EMOPTS) $(EMEXPORTS) $(EMINCS) $(EMEXTRAS)
 
-# flags to generate all emcc objects (i.e. so $(CC) runs emcc)
-CC =		emcc $(EMFLAGS) -I$(CFITSIO) -I$(JSFITSIO) -I$(UTIL) -I$(WCS) -I$(ZLIB) -I$(ZSCALE) -D'exit(n)=em_exit(n)'
+# flags to generate all emcc objects (i.e. so default rule for $(CC) runs emcc)
+CC =		emcc $(EMFLAGS) -I./include -I$(JSFITSIO) -I$(UTIL) -I$(ZSCALE) -D'exit(n)=em_exit(n)'
 
-all:		$(ASTROEM)
+all:		$(ASTROEMJS)
 
 astroem.bc:	$(OBJS) $(PKGOBJS) $(LIBS)
 		$(EMCC) -o $@ $+
 
-$(ASTROEM):	astroem.bc pre.js post.js shell-pre.js shell-post.js Makefile
-		@(echo "generating raw astroem.js ..."; \
+$(ASTROEMJS):	astroem.bc pre.js post.js shell-pre.js shell-post.js Makefile
+		@(echo "generating raw $(ASTROEMJS) ..."; \
 		$(EMCC) astroem.bc -o astroem.raw.js; \
-		echo "adding shell wrapper to generate astroem.js ..."; \
-		cat shell-pre.js > astroem.js; \
-		cat astroem.raw.js >> astroem.js; \
-		cat shell-post.js >> astroem.js)
+		echo "adding shell wrapper to generate $(ASTROEMJS) ..."; \
+		cat shell-pre.js > $(ASTROEMJS); \
+		cat astroem.raw.js >> $(ASTROEMJS); \
+		cat shell-post.js >> $(ASTROEMJS))
 
 install:	FORCE
-		@(if [ -d $(JS9)/js ]; then \
-		    echo "installing $(ASTROEM) in JS9 directory: $(JS9)/js"; \
-		    cp -p $(ASTROEM) $(JS9)/js/.; \
+		@(if [ -d $(INSTALLDIR) ]; then \
+		    echo "installing $(ASTROEMJS) in: $(INSTALLDIR)"; \
+		    cp -p $(ASTROEMJS) $(INSTALLDIR)/.; \
 		    if [ x"$(ASTROEMEXTRA)" != x ]; then \
-		      echo "also installing $(ASTROEMEXTRA): $(JS9)/js"; \
-		      cp -p $(ASTROEMEXTRA) $(JS9)/js/.; \
+		      echo "also installing $(ASTROEMEXTRA): $(INSTALLDIR)"; \
+		      cp -p $(ASTROEMEXTRA) $(INSTALLDIR)/.; \
 		    fi; \
 		    cd .. && $(MAKE) js9support; \
 		  else \
 		    echo "could not find JS9 directory: $(JS9)"; \
 		  fi;)
 
-# turn off cfitsio IO buffering, since 'files' are stored in memory
-LIBCFLAGS =	$(EMFLAGS) -fno-common -D__x86_64__ -DNIOBUF=0 -DMINDIRECT=0
-# LIBCFLAGS =	$(EMFLAGS) -fno-common -D__x86_64__
-
-# cfitsio library
-# don't make zlib in cfitsio, we'll use the emscripten version
-cfitsio:	FORCE
-		@(CDIR=`pwd`; cd $(CFITSIO); \
-		emconfigure ./configure; \
-		emmake make ZLIB_SOURCES="" CFLAGS="$(LIBCFLAGS)" \
-		clean all-nofitsio ;\
-		cp -p libcfitsio.a $${CDIR}/lib;)
+# get the astroem libraries
+astroem:	FORCE
+		@(cp -p $(ASTROEM)/include/*.h include/.; \
+		  cp -p $(ASTROEM)/lib/*.a lib/.;)
 
 clean:		FORCE
 		@(rm -rf *.o *~ a.out* foo* *.map \#*  \
-		astroem*.js astroem*.mem astroem.bc; \
+		$(ASTROEMJS) astroem.raw.js astroem*.mem astroem.bc; \
 		for d in $(PKGDIRS); do \
 		  rm -rf $$d/*{.a,.o,~}; \
-		done; \
-		if [ -d $(CFITSIO) ]; then \
-		    cd $(CFITSIO) && make clean 2>&1 >/dev/null; \
-		fi;)
+		done;)
 
 FORCE:

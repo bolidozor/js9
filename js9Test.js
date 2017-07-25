@@ -2,11 +2,11 @@
  *
  * js9Test: Node-based testing for JS9
  *
- * Principal: Eric Mandel
+ * Principals: Eric Mandel
  * Organization: Harvard Smithsonian Center for Astrophysics, Cambridge MA
  * Contact: saord@cfa.harvard.edu
  *
- * Copyright (c) 2015 Smithsonian Astrophysical Observatory
+ * Copyright (c) 2015 - 2016 Smithsonian Astrophysical Observatory
  *
  * Utilizes: minimist, selenium
  *
@@ -17,12 +17,23 @@
 
 /*jshint smarttabs:true */
 
+/* global require process */
+/* eslint no-console: "off" */
+
 "use strict";
 
 // local variables
-var i, s;
+var i, s, driver;
 var cdir = process.cwd();
 var tdir = cdir + "/js9Tests";
+
+// load node modules
+var cproc   = require("child_process"),
+    fs      = require("fs");
+
+// load webdriver modules
+var webdriver = require('selenium-webdriver');
+var By = webdriver.By, until = webdriver.until;
 
 // js9Test object contains everything, gets passed to each command line script
 var js9Test = {};
@@ -47,16 +58,6 @@ js9Test.image = js9Test.argv.image;
 js9Test.images = [];
 // the list of scripts (comes after the switches, or use --all for all tests)
 js9Test.scripts = js9Test.argv._;
-
-// load node modules
-var cproc   = require("child_process"),
-    fs      = require("fs"),
-    assert  = require("assert");
-
-// load webdriver modules
-var webdriver = require('selenium-webdriver'),
-    By = webdriver.By,
-    until = webdriver.until;
 
 // requires at least one test file or --all switch
 if( !js9Test.scripts.length ){
@@ -87,7 +88,7 @@ if( !js9Test.scripts.length ){
 }
 
 // build driver for specified browser
-var driver = new webdriver.Builder()
+driver = new webdriver.Builder()
     .forBrowser(js9Test.browser)
     .build();
 
@@ -300,7 +301,7 @@ if( js9Test.debug ){
 driver.get(js9Test.webpage);
 
 // wait for JS9 to be ready on the page ...
-driver.executeScript("return JS9.helper.connected").then(function(s){
+driver.executeScript("return JS9.helper.connected").then(function(){
     // ... process each test script in turn
     for(i=0; i<js9Test.files.length; i++){
 	if( js9Test.debug ){

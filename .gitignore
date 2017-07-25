@@ -8,9 +8,8 @@
 foo*
 goo*
 node.log
-Makefile
-!astroem/Makefile
-!util/Makefile
+js9node.log
+/Makefile
 conf.h
 config.status
 config.log
@@ -23,6 +22,7 @@ tpos
 js9helper
 js9
 js9helper.pc
+plotly.min.js
 .DS_Store
 js/.DS_Store
 astroem/.DS_Store

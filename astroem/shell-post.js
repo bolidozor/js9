@@ -1,6 +1,8 @@
 
   return {
       initwcs:  Module.cwrap('initwcs', 'number', ['string', 'number']),
+      freewcs:  Module.cwrap('freewcs', 'number', ['number']),
+      listhdu:  Module.cwrap('listhdu', 'string', ['string', 'string']),
       wcsinfo:  Module.cwrap('wcsinfo', 'string', ['number']),
       wcssys:  Module.cwrap('wcssys', 'string', ['number', 'string']),
       wcsunits:  Module.cwrap('wcsunits', 'string', ['number', 'string']),
@@ -11,6 +13,7 @@
       saodtype:  Module.cwrap('saodtype', 'number'),
       arrfile: Module["arrfile"],
       vfile: Module["vfile"],
+      vsize: Module["vsize"],
       vunlink: Module["vunlink"],
       vheap: Module["HEAPU8"],
       vmalloc: Module["_malloc"],
@@ -28,6 +31,7 @@
       getFITSImage: Module["getFITSImage"],
       maxFITSMemory: Module["maxFITSMemory"],
       zscale: Module.cwrap('zscale', 'string', ['number', 'number', 'number', 'number', 'number', 'number', 'number']),
+      tanhdr: Module.cwrap('tanhdr', 'string', ['string', 'string', 'string']),
       reproject: Module.cwrap('reproject', 'string', ['string', 'string', 'string', 'string']),
       vls: Module.cwrap('vls', 'int', ['string']),
       vcat: Module.cwrap('vcat', 'string', ['string', 'number']),

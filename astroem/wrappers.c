@@ -1,13 +1,7 @@
 /*
- * wcswrapper.c -- enscripten wrapper functions
+ * wrappers.c -- enscripten wrapper functions
  *
  * Eric Mandel 10/11/2013 (during the Great Government Shutdown)
- *
- * The main reasons for writing this module are:
- * 1. I couldn't figure out how to call subroutines and fill in indirect args
- * 2. I didn't seem to be able to return the wcs struct to javascript
- * 3. I didn't see much help in the scant documentation
- * 4. I got tired of banging my head against the wall regarding #1, #2, #3
  * 
  */
 
@@ -34,7 +28,7 @@
 
 #define NDEC 3
 
-#define SZ_LINE  1024
+#define SZ_LINE  65536
 #define MAX_ARGS 10
 
 /* must match Module['rootdir'] in post.js! */
@@ -59,7 +53,9 @@ static int nreproj=0;
 
 static jmp_buf em_jmpbuf;
 
+int mTANHdr(int argc, char **argv);
 int mProjectPP(int argc, char **argv);
+int _listhdu(char *iname, char *oname);
 void emscripten_exit_with_live_runtime(void);
 
 /*
@@ -126,7 +122,8 @@ static int filecontents(char *path, char *obuf, int osize){
 
 /* add a new Info record with a valid wcs struct */
 static int newinfo(struct WorldCoor *wcs){
-  int n;
+  int i, n, cinfo;
+  // init info array
   if( maxinfo == 0 ){
     maxinfo = maxinc;
     infos = malloc(maxinfo * sizeof(InfoRec));
@@ -134,6 +131,7 @@ static int newinfo(struct WorldCoor *wcs){
       return -4;
     }
   }
+  // increase info array, if necessary
   while( ninfo >= maxinfo ){
     maxinfo += maxinc;
     infos = realloc(infos, maxinfo * sizeof(InfoRec));
@@ -141,14 +139,38 @@ static int newinfo(struct WorldCoor *wcs){
       return -3;
     }
   }
+  // assume we will use next available slot
+  cinfo = ninfo;
+  // but look for an empty slot
+  for(i=1; i<ninfo; i++){
+    if( infos[i].wcs == NULL ){
+      cinfo = i;
+      break;
+    }
+  }
+  // populate slot with wcs info
   if( wcs ){
-    n = ninfo;
-    infos[ninfo].wcs = wcs;
-    infos[ninfo].wcsunits = WCS_SEXAGESIMAL;
-    *infos[ninfo].str = '\0';
-    ninfo++;
+    n = cinfo;
+    infos[n].wcs = wcs;
+    infos[n].wcsunits = WCS_SEXAGESIMAL;
+    *infos[n].str = '\0';
+    if( cinfo == ninfo ){
+      ninfo++;
+    }
   } else {
     n = -1;
+  }
+  return n;
+}
+
+// free wcs and info records
+static int freeinfo(int n){
+  if( (n < 0) || (n >= ninfo) ){
+    return 0;
+  }
+  if( infos[n].wcs ){
+    wcsfree(infos[n].wcs);
+    infos[n].wcs = NULL;
   }
   return n;
 }
@@ -197,12 +219,21 @@ int initwcs(char *s, int n){
   return newinfo(wcs);
 }
 
+/* free the wcs struct */
+int freewcs(int n){
+  return freeinfo(n);
+}
+
 /* return important info about the wcs (used by region parsing) */
 char *wcsinfo(int n){
   Info info = getinfo(n);
   char *str = NULL;
-  int imflip=0;
-  double cdelt1=0.0, cdelt2=0.0, crot=0.0;
+  char *ptype=NULL;
+  char *radecsys=NULL;
+  char *c1type=NULL;
+  char *c2type=NULL;
+  double crval1=0.0, crval2=0.0, crpix1=0.0, crpix2=0.0, cdelt1=0.0, cdelt2=0.0;
+  double crot=0.0;
   if( info->wcs ){
     if( !info->wcs->coorflip ){
       cdelt1 = info->wcs->cdelt[0];
@@ -217,13 +248,21 @@ char *wcsinfo(int n){
     } else {
 	crot =  info->wcs->rot;
     }
-    imflip = info->wcs->imflip;
+    crval1 = info->wcs->crval[0];
+    crval2 = info->wcs->crval[1];
+    crpix1 = info->wcs->crpix[0];
+    crpix2 = info->wcs->crpix[1];
+    c1type = info->wcs->c1type;
+    c2type = info->wcs->c2type;
+    ptype = info->wcs->ptype;
+    radecsys = info->wcs->radecsys;
   }
   // convert to 1-indexed image coords
   str = info->str;
   snprintf(str, SZ_LINE-1,
-  "{\"cdelt1\": %.14g, \"cdelt2\": %.14g, \"crot\": %.14g, \"imflip\": %d}",
-   cdelt1, cdelt2, crot, imflip);
+	   "{\"crval1\": %.14g, \"crval2\": %.14g, \"crpix1\": %.14g, \"crpix2\": %.14g, \"cdelt1\": %.14g, \"cdelt2\": %.14g, \"crot\": %.14g, \"ctype1\": \"%s\", \"ctype2\": \"%s\",  \"ptype\": \"%s\", \"radecsys\": \"%s\"}",
+	   crval1, crval2, crpix1, crpix2, cdelt1, cdelt2, crot,
+	   c1type, c2type, ptype, radecsys);
   return str;
 }
 
@@ -267,8 +306,9 @@ char *wcssys(int n, char *s){
     if( s && *s && 
 	(!strcasecmp(s, "galactic") || !strcasecmp(s, "ecliptic") ||
 	 !strcasecmp(s, "linear")   || (wcsceq(s) > 0.0)) ){
-      /* try to set the wcs output system */
+      /* try to set the wcs system */
       wcsoutinit(info->wcs, s);
+      wcsininit(info->wcs, s);
     }
     /* always return current */
     strncpy(str, getwcsout(info->wcs), SZ_LINE);
@@ -296,6 +336,7 @@ char *wcsunits(int n, char *s){
 	info->wcsunits = WCS_DEGREES;
       } else {
 	setwcsdeg(info->wcs, WCS_SEXAGESIMAL);
+        wcsndec(info->wcs, 3);
 	info->wcsunits = WCS_SEXAGESIMAL;
       }
     }
@@ -518,6 +559,50 @@ char *zscale(unsigned char *im, int nx, int ny, int bitpix,
   return rstr;
 }
 
+/* generate alternate WCS header using Montage/mTANHdr */
+char *tanhdr(char *iname, char *oname, char *cmdswitches){
+  int i=0, j=0;
+  char *targs=NULL, *targ=NULL;
+  char *args[SZ_LINE];
+  char tbufs[MAX_ARGS][SZ_LINE];
+  char file0[SZ_LINE];
+  char file1[SZ_LINE];
+  char file2[SZ_LINE];
+  args[i++] = "mTANHdr";
+  if( cmdswitches && *cmdswitches ){
+    targs = (char *)strdup(cmdswitches);
+    for(targ=(char *)strtok(targs, " \t"); targ != NULL; 
+	targ=(char *)strtok(NULL," \t")){
+      if( j < MAX_ARGS ){
+	strncpy(tbufs[j], targ, SZ_LINE-1);
+	args[i++] = tbufs[j++];
+      } else {
+	break;
+      }
+    }
+    if( targs ) free(targs);
+  }
+  args[i++] = "-s";
+  snprintf(file0, SZ_LINE-1, "%sstatus_%d.txt", ROOTDIR, nreproj++);
+  args[i++] = file0;
+  snprintf(file1, SZ_LINE-1, "%s%s", ROOTDIR, iname);
+  args[i++] = file1;
+  snprintf(file2, SZ_LINE-1, "%s%s", ROOTDIR, oname);
+  args[i++] = file2;
+  /* we have changed montage exit() calls to longjmp() */
+  if( !setjmp(em_jmpbuf) ){
+    /* make the tanhdr call */
+    mTANHdr(i, args);
+  }
+  /* look for a return value */
+  if( filecontents(file0, rstr, SZ_LINE) > 0 ){
+    unlink(file0);
+    return rstr;
+  } else {
+    return "Error: tanhdr failed; no status file created";
+  }
+}
+
 /* reproject using Montage/mProjectPP */
 char *reproject(char *iname, char *oname, char *wname, char *cmdswitches){
   int i=0, j=0;
@@ -551,7 +636,6 @@ char *reproject(char *iname, char *oname, char *wname, char *cmdswitches){
   args[i++] = file2;
   snprintf(file3, SZ_LINE-1, "%s%s", ROOTDIR, wname);
   args[i++] = file3;
-  /* make the reprojection call */
   /* we have changed montage exit() calls to longjmp() */
   if( !setjmp(em_jmpbuf) ){
     /* make the reprojection call */
@@ -563,6 +647,21 @@ char *reproject(char *iname, char *oname, char *wname, char *cmdswitches){
     return rstr;
   } else {
     return "Error: reproject failed; no status file created";
+  }
+}
+
+/* get info about the hdus in a FITS file */
+char *listhdu(char *iname){
+  char file0[SZ_LINE];
+  char file1[SZ_LINE];
+  snprintf(file0, SZ_LINE-1, "%s%s", ROOTDIR, iname);
+  snprintf(file1, SZ_LINE-1, "%s%s.hdulist", ROOTDIR, iname);
+  _listhdu(file0, file1);
+  if( filecontents(file1, rstr, SZ_LINE) >= 0 ){
+    unlink(file1);
+    return rstr;
+  } else {
+    return "Error: listhdu failed; no list file created";
   }
 }
 
@@ -639,4 +738,10 @@ int vls(char *dir){
   }
   closedir(dfd);
   return got;
+}
+
+// dummy routine to work around missing routine in emscripten 1.37.9
+// signature take from: 1.37.9/system/lib/libc/musl/src/thread/__wait.c
+void __wait(volatile int *addr, volatile int *waiters, int val, int priv){
+  return;
 }

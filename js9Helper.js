@@ -6,7 +6,7 @@
  * Organization: Harvard Smithsonian Center for Astrophysics, Cambridge MA
  * Contact: saord@cfa.harvard.edu
  *
- * Copyright (c) 2012 - 2014 Smithsonian Astrophysical Observatory
+ * Copyright (c) 2012 - 2017 Smithsonian Astrophysical Observatory
  *
  * Utilizes: socket.io, node-uuid
  *
@@ -16,12 +16,15 @@
 
 /*jshint smarttabs:true */
 
+/* global require process module __dirname Buffer */
+
 "use strict";
 
 // load required modules
 var http = require('http'),
+    path = require('path'),
     https = require('https'),
-    Sockio = require('socket.io'),
+    Server = require('socket.io'),
     url = require('url'),
     qs = require('querystring'),
     cproc  = require("child_process"),
@@ -30,14 +33,15 @@ var http = require('http'),
     rmdir = require('rimraf');
 
 // internal variables
-var app, io, secure;
-var prefsfile = "js9Prefs.json";
-var securefile = "js9Secure.json";
+var app, io, secure, envs;
+var cdir = __dirname;
+var prefsfile  = path.join(cdir, "js9Prefs.json");
+var securefile = path.join(cdir, "js9Secure.json");
 var fits2png = {};
+var fits2fits = {};
+var quotacheck = {};
 var analysis = {str:[], pkgs:[]};
-var envs = JSON.stringify(process.env);
 var plugins = [];
-var cdir = process.cwd();
 
 // secure options ... change as necessary in securefile
 var secureOpts = {
@@ -50,25 +54,28 @@ var secureOpts = {
 var globalOpts = {
     helperPort:       2718,
     helperHost:       "0.0.0.0",
+    helperOpts:       {'maxHttpBufferSize': Infinity},
     cmd:              "js9helper",
-    analysisPlugins:  "./analysis-plugins",
-    analysisWrappers: "./analysis-wrappers",
-    helperPlugins:    "./helper-plugins",
+    analysisPlugins:  "analysis-plugins",
+    analysisWrappers: "analysis-wrappers",
+    helperPlugins:    "helper-plugins",
     maxBinaryBuffer:  150*1024000, // exec buffer: good for 4096^2 64-bit image
     maxTextBuffer:    5*1024000,   // exec buffer: good for text
     textEncoding:     "ascii",     // encoding for returned stdout from exec
-    workDir:          "",          // top-level working directory for exec
-    workDirQuota:     50,          // quota on working directory (Mb)
     rmWorkDir:        true,        // remove workdir on disconnect?
     remoteMsgs:       1 // 0 => none, 1 => samehost, 2 => all
 };
+// globalOpts that might need to have paths relative to __dirname
+var globalRelatives = ["analysisPlugins",
+		       "analysisWrappers",
+		       "helperPlugins"];
 
 //
 // functions that might depend on specific implementations of socket.io
 //
 
 // get ip address and port of the current socket or http connection
-function getHost(io, req){
+var getHost = function(io, req){
     // socket.io
     if( req.handshake ){
 	return req.client.conn.remoteAddress;
@@ -77,10 +84,10 @@ function getHost(io, req){
     // http://stackoverflow.com/questions/19266329/node-js-get-clients-ip
     return (req.headers['x-forwarded-for'] || '').split(',')[0] ||
             req.connection.remoteAddress;
-}
+};
 
 // http://stackoverflow.com/questions/6563885/socket-io-how-do-i-get-a-list-of-connected-sockets-clients
-function findClientsSocket(io, namespace, roomId){
+var findClientsSocket = function(io, namespace, roomId){
     var id, index;
     var res = [];
     var ns = io.of(namespace ||"/");    // the default namespace is "/"
@@ -99,36 +106,55 @@ function findClientsSocket(io, namespace, roomId){
         }
     }
     return res;
-}
+};
 
 // get list of all clients currently connected
-function getClients(io, socket){
+// eslint-disable-next-line no-unused-vars
+var getClients = function(io, socket){
     return findClientsSocket(io);
-}
+};
 
 // utility functions
 
 // create a nice date/time string for logging
-function datestr(){
-    return new Date().toISOString().replace(/T/, ' ').replace(/\..+/, ' UTC');
-}
+var datestr = function(){
+    return new Date().toLocaleString(undefined, {hour12: false});
+};
+
 // output a log message on the console
-function clog(){
+var clog = function(){
     var args = Array.prototype.slice.call(arguments, 0);
     args.push(" [" + datestr() + "]");
+    // eslint-disable-next-line no-console
     console.log.apply(null, args);
-}
+};
+
+// output string to log file
+// eslint-disable-next-line no-unused-vars
+var flog = function(s){
+    var buffer = new Buffer(s + "\n");
+    fs.open('tmp/js9node.log', 'a', function(err, fd){
+	if( fd ){
+	    fs.write(fd, buffer, 0, buffer.length, null,
+		     // eslint-disable-next-line no-unused-vars
+		     function(err, written, bytes){
+			 fs.closeSync(fd);
+		     });
+	}
+    });
+};
 
 // output an error message on the console
-function cerr(){
+var cerr = function(){
     var args = Array.prototype.slice.call(arguments, 0);
     args.unshift("ERROR: ");
     args.push(" [" + datestr() + "]");
+    // eslint-disable-next-line no-console
     console.log.apply(null, args);
-}
+};
 
 // getTargets: identify target(s) for an external msg for a given ip
-function getTargets(io, socket, msg){
+var getTargets = function(io, socket, msg){
     var i, j, c, clip;
     var displays;
     var browserip = msg.browserip || "*";
@@ -185,18 +211,46 @@ function getTargets(io, socket, msg){
 	}
     }
     return targets;
-}
+};
+
+// connectWorker: identify main socket for this worker
+var connectWorker = function(io, socket, pageid){
+    var i, c, clip;
+    // ip associated with this socket
+    var myip = getHost(io, socket);
+    // list of all clients connected on this socket
+    var clients = getClients(io, socket);
+    // sanity check
+    if( !pageid ){
+	return null;
+    }
+    // look at all clients
+    for(i=0; i<clients.length; i++){
+	// current client
+	c = clients[i];
+	// check for client with same pageid
+	if( c.js9 && (c.js9.pageid === pageid) ){
+	    // get client ip
+	    clip = getHost(io, c);
+	    // ip of worker and client must match!
+	    if( myip === clip ){
+		return c;
+	    }
+	}
+    }
+    return null;
+};
 
 // envClean: clean incoming environment variables
 // this should match cleaning in js9Helper.cgi
-function envClean(s) {
+var envClean = function(s) {
     if( typeof s === "string" ){
-	return s.replace(/[`&]/g, "").replace(/\(\)[ 	]*\{.*/g, "");
+	return s.replace(/[`&]/g, "").replace(/\(\)\s*\{.*/g, "");
     }
     return s;
-}
+};
 
-function loadSecurePreferences(securefile){
+var loadSecurePreferences = function(securefile){
     var s, obj, opt;
     var secure = false;
     if( fs.existsSync(securefile) ){
@@ -232,10 +286,10 @@ function loadSecurePreferences(securefile){
 	}
     }
     return secure;
-}
+};
 
 // load preference file, if possible
-function loadPreferences(prefsfile){
+var loadPreferences = function(prefsfile){
     var s, obj, opt, otype, jtype;
     if( fs.existsSync(prefsfile) ){
 	s = fs.readFileSync(prefsfile, "utf-8");
@@ -267,11 +321,18 @@ function loadPreferences(prefsfile){
 		}
 	    }
 	}
+	// some directories should be relative to __dirname
+	globalRelatives.forEach( function(s){
+	    var file = globalOpts[s];
+	    if( file && !path.isAbsolute(file) ){
+		globalOpts[s] = path.join(cdir, file);
+	    }
+	});
     }
-}
+};
 
 // load analysis plugin files, if available
-function loadAnalysisTasks(dir){
+var loadAnalysisTasks = function(dir){
     if( fs.existsSync(dir) ){
 	fs.readdir(dir, function(err, files){
 	    var i, jstr, pathname;
@@ -290,6 +351,14 @@ function loadAnalysisTasks(dir){
 			    try{ fits2png = JSON.parse(jstr); }
 			    catch(e1){cerr("can't parse: ", pathname, e1);}
 			    break;
+			case "fits2fits.json":
+			    try{ fits2fits = JSON.parse(jstr); }
+			    catch(e1){cerr("can't parse: ", pathname, e1);}
+			    break;
+			case "quotacheck.json":
+			    try{ quotacheck = JSON.parse(jstr); }
+			    catch(e1){cerr("can't parse: ", pathname, e1);}
+			    break;
 			default:
 			    try{
 				analysis.pkgs.push(JSON.parse(jstr));
@@ -303,16 +372,16 @@ function loadAnalysisTasks(dir){
 	    }
 	});
     }
-}
+};
 
 // addAnalysisTask: add to the list of analysis tasks sent to browser
-function addAnalysisTask(obj) {
+var addAnalysisTask = function(obj) {
     analysis.pkgs.push(obj);
     analysis.str.push("[" + JSON.stringify(obj) + "]");
-}
+};
 
 // load user-defined plugins, if possible
-function loadHelperPlugins(dir){
+var loadHelperPlugins = function(dir){
     if( fs.existsSync(dir) ){
 	fs.readdir(dir, function(err, files){
 	    var i, x, pathname, name;
@@ -337,15 +406,18 @@ function loadHelperPlugins(dir){
 	    }
 	});
     }
-}
+};
 
 // parse an argument string into an array of arguments, where
 // spaces and quotes are delimiters
-function parseArgs(argstr){
+var parseArgs = function(argstr){
     var targs, i, j, ci, c1, c2, s;
     var args = [];
+    // temporarily replace spaces inside file extension brackets
+    // https://stackoverflow.com/questions/16644159/regex-to-remove-spaces-between-and
+    var nargstr = argstr.replace(/\s+(?=[^[\]]*\])/g, "__sp__");
     // split arguments on spaces
-    targs = argstr.split(" ");
+    targs = nargstr.split(" ");
     // now re-combine quoted args into one arg
     for(i=0, j=0, ci=-1; i<targs.length; i++){
 	// remove or rename dangerous characters
@@ -387,8 +459,81 @@ function parseArgs(argstr){
 	    }
 	}
     }
+    // now put back the spaces
+    for(i=0; i<args.length; i++){
+	args[i] = args[i].replace(/__sp__/g, " ");
+    }
     return args;
-}
+};
+
+// get data path
+var getDataPath = function(s){
+    var dpath;
+    if( s ){
+	dpath = envClean(s);
+    } else if( globalOpts.dataPath ){
+	dpath = envClean(globalOpts.dataPath);
+    } else {
+	dpath = "";
+    }
+    dpath += ":" + cdir;
+    return dpath;
+};
+
+// see if a file exists in the dataPath
+var getFilePath = function(file, dataPath, myenv){
+    var i, s, froot, fext, parr;
+    // eslint-disable-next-line no-unused-vars
+    var repl = function(m, t, o){
+	if( myenv && myenv[t] ){
+	    return myenv[t];
+	}
+	return m;
+    };
+    // sanity check
+    if( !file ){
+	return;
+    }
+    // look for and remove the extension
+    froot = file.replace(/\[.*]$/,"");
+    s = file.match(/\[.*]$/,"");
+    if( s ){
+	fext = s[0];
+    } else {
+	fext = "";
+    }
+    if( path.isAbsolute(froot) ){
+	parr = [""];
+    } else {
+	parr = dataPath.split(":");
+    }
+    // replace environment variables in path, if possible
+    for(i=0; i<parr.length; i++){
+	s = parr[i].replace(/\${?([a-zA-Z][a-zA-Z0-9_()]+)}?/g, repl);
+	// make up pathname to check
+	s = path.join(s, froot);
+	if( fs.existsSync(s) ){
+	    // found the file add extension to full path
+	    s += fext;
+	    return s;
+	}
+    }
+    return;
+};
+
+// get size of a file
+var getFileSize = function(file){
+    var stats;
+    var size = 0;
+    var froot = file.replace(/\[.*]$/,"");
+    if( fs.existsSync(froot) ){
+	stats = fs.statSync(froot);
+	if( stats ){
+	    size = stats.size;
+	}
+    }
+    return size;
+};
 
 //
 // message callbacks
@@ -396,15 +541,33 @@ function parseArgs(argstr){
 
 // execCmd: exec a analysis wrapper function to run a command
 // this is the default callback for server-side analysis tasks
-function execCmd(io, socket, obj, cbfunc) {
-    var cmd, argstr, args, maxbuf;
+var execCmd = function(io, socket, obj, cbfunc) {
+    var cmd, argstr, args, maxbuf, child, s;
     var myworkdir = null;
     var myip = getHost(io, socket);
     var myid = obj.id;
     var myrtype = obj.rtype || "binary";
     var myenv = JSON.parse(envs);
+    var res = {stdout: null, stderr: null, errcode: 0,
+	       encoding: globalOpts.textEncoding};
     // sanity check
-    if( !obj.cmd ){
+    if( !obj.cmd || !socket.js9 ){
+	return;
+    }
+    // stdin processing
+    if( obj.stdin && typeof obj.stdin === "object" ){
+	// first chunk gets sent after process is started (see below),
+	// otherwise send a new chunk to stdin now and return
+	socket.js9.child.stdin.write(obj.stdin.data);
+	// if this was the last chunk,  close off stdin and delete child
+	if( (obj.stdin.cur + obj.stdin.len) >= obj.stdin.total ){
+	    socket.js9.child.stdin.end();
+	    delete socket.js9.child;
+	}
+	if( cbfunc ){
+	    res.stdout = "OK";
+	    cbfunc(res);
+	}
 	return;
     }
     // id of js9 display
@@ -420,11 +583,7 @@ function execCmd(io, socket, obj, cbfunc) {
 	myenv.HTTP_COOKIE = envClean(obj.cookie);
     }
     // datapath (for finding data files)
-    if( obj.dataPath ){
-	myenv.JS9_DATAPATH = envClean(obj.dataPath);
-    } else if( globalOpts.dataPath ){
-	myenv.JS9_DATAPATH = envClean(globalOpts.dataPath);
-    }
+    myenv.JS9_DATAPATH = getDataPath(obj.dataPath);
     // set max buffer size
     switch(myrtype){
     case "text":
@@ -441,19 +600,32 @@ function execCmd(io, socket, obj, cbfunc) {
     // expand directory macros
     argstr = argstr
 	.replace(/\$\{?JS9_DIR\}?/, cdir)
-	.replace(/\$\{?JS9_WORKDIR\}?/, (socket.js9.workDir || ""));
+	.replace(/\$\{?JS9_WORKDIR\}?/, (socket.js9.rworkDir || ""));
     // split arguments on spaces, respecting quotes
     args = parseArgs(argstr);
-    // get commmand to execute
+    // handle fitshelper specially
     if( args[0] === globalOpts.cmd ){
+	// if FITS, handle this request internally instead of exec'ing
+	// (makes external analysis possible without building js9 programs)
+	if( obj.image && (path.extname(obj.image ) !== ".png") ){
+	    s = getFilePath(obj.image, myenv.JS9_DATAPATH, myenv);
+	    if( s ){
+		res.stdout = obj.image + " " + s;
+	    }
+	    if( cbfunc ){
+		cbfunc(res);
+	    }
+	    return;
+	}
 	// handle fitshelper specially
 	cmd = args[0];
     } else {
 	// start in the appropriate work directory, if possible
-	if( (obj.useWorkDir !== false) && socket.js9 && socket.js9.workDir ){
-	    myworkdir = socket.js9.workDir;
-	    // working directory relative to JS9 dir
-	    myenv.JS9_WORKDIR = myworkdir;
+	if( (obj.useWorkDir !== false) && socket.js9 && socket.js9.aworkDir ){
+	    // abdsolute working directory to cd into
+	    myworkdir = socket.js9.aworkDir;
+	    // working directory relative to JS9 dir is for the worker
+	    myenv.JS9_WORKDIR = socket.js9.rworkDir;
 	    myenv.JS9_WORKDIR_QUOTA = globalOpts.workDirQuota;
 	}
 	// construct wrapper
@@ -466,8 +638,8 @@ function execCmd(io, socket, obj, cbfunc) {
     // log what we are about to do
     clog("exec: %s [%s]", cmd, args.slice(1));
     // execute the analysis script with cmd arguments
-    // NB: can't use exec because it's shell breaks, e.g. region command lines
-    cproc.execFile(cmd, args.slice(1),
+    // NB: can't use exec because the shell breaks, e.g. region command lines
+    child = cproc.execFile(cmd, args.slice(1),
 		   { encoding: "utf8",
 		     timeout: 0,
 		     maxBuffer: maxbuf,
@@ -477,7 +649,6 @@ function execCmd(io, socket, obj, cbfunc) {
 		   },
 		   // return from exec
 		   function(errcode, stdout, stderr) {
-		       var res={stdout: null, stderr: null};
 		       if( errcode ){
 			   res.errcode = errcode.errno || errcode.code;
 		       }
@@ -487,7 +658,6 @@ function execCmd(io, socket, obj, cbfunc) {
 			   case "plot":
 			   case "png":
 			   case "alert":
-			       res.encoding = globalOpts.textEncoding;
 			       res.stdout = stdout.toString(res.encoding);
 			       break;
 			   default:
@@ -502,20 +672,70 @@ function execCmd(io, socket, obj, cbfunc) {
 		       // send results back to browser
 		       if( cbfunc ){ cbfunc(res); }
 		   });
-}
+    // first time through: save child for uploading data
+    if( obj.stdin === true ){
+	// save child so we can process future chunks of data
+	socket.js9.child = child;
+	// set up to send raw data
+	socket.js9.child.stdin.setEncoding = 'binary';
+    }
+};
 
 // sendAnalysis: send list of analysis routines to browser
-function sendAnalysisTasks(io, socket, obj, cbfunc) {
+var sendAnalysisTasks = function(io, socket, obj, cbfunc) {
     var s;
     if( analysis && analysis.str.length ){
 	s = "[" + analysis.str.join(",") + "]";
 	if( cbfunc ){ cbfunc(s); }
     }
-}
+};
+
+// pageReady: wait for a Web browser to load a JS9 page and connect
+// used by js9Msg.js to start up a Web browser before executing commands
+var pageReady = function(io, socket, obj, cbfunc, tries){
+    var i, targets;
+    var timeout = obj.timeout || 500;
+    var maxtries = obj.tries || 10;
+    // callback function
+    var myfunc = function(s){
+	if( cbfunc ){ cbfunc(s); }
+    };
+    setTimeout(function(){
+	// look for targets
+	targets = getTargets(io, socket, obj);
+	// if we have at least one ...
+	if( (targets.length === 1) || obj.multi ){
+	    // send command to JS9 instance(s)
+	    for(i=0; i<targets.length; i++){
+		targets[i].emit("msg", obj, myfunc);
+	    }
+	} else {
+	    // no targets: have we tried enough?
+	    if( !targets.length ){
+		if( tries < maxtries ){
+		    // no, try again
+		    pageReady(io, socket, obj, cbfunc, tries+1);
+		} else {
+		    // yes, it's an error
+		    if( cbfunc ){
+			cbfunc("ERROR: timeout waiting for Web page");
+		    }
+		}
+	    } else {
+		// it's an error
+		if( cbfunc ){
+		    cbfunc("ERROR: "+ targets.length +
+			   " JS9 instance(s) found with" +
+			   " id " + obj.id + " (" + obj.cmd+")");
+		}
+	    }
+	}
+    }, timeout);
+};
 
 // sendMsg: send a message to the browser
 // this is the default callback for external communication with JS9
-function sendMsg(io, socket, obj, cbfunc) {
+var sendMsg = function(io, socket, obj, cbfunc) {
     var i, targets;
     // callback function
     var myfunc = function(s){
@@ -523,26 +743,37 @@ function sendMsg(io, socket, obj, cbfunc) {
     };
     // get list of targets to send to
     targets = getTargets(io, socket, obj);
+    // was that all that's wanted?
+    if( obj.cmd === "targets" ){
+	myfunc(targets.length);
+	return;
+    }
     // look for one target (or else that multi is allowed)
     if( (targets.length === 1) || obj.multi ){
+	// send command to JS9 instance(s)
 	for(i=0; i<targets.length; i++){
 	    targets[i].emit("msg", obj, myfunc);
 	}
     } else {
+	// no targets: wait for the page to get ready?
+	if( !targets.length && obj.pageReady ){
+	    pageReady(io, socket, obj, cbfunc, 0);
+	    return;
+	}
+	// it's an error
 	if( cbfunc ){
             cbfunc("ERROR: "+targets.length+" JS9 instance(s) found with" +
 		   " id " + obj.id + " (" + obj.cmd+")");
 	}
     }
-}
-
+};
 
 //
 // protocol handlers
 //
 
 // socketio handler: field socket.io requests
-function socketioHandler(socket) {
+var socketioHandler = function(socket) {
     var i, j, m, a;
     // function outside loop needed to make jslint happy
     var xfunc = function(obj, cbfunc) {
@@ -556,40 +787,84 @@ function socketioHandler(socket) {
     //   show disconnects in the log
     socket.on("disconnect", function() {
 	var myhost = getHost(io, socket);
-	// only show disconnect for displays (not js9 msgs)
-	if( socket.js9 && socket.js9.displays ){
+	// only process disconnect for displays (not js9 msgs or workers)
+	if( socket.js9 && socket.js9.displays && !socket.js9worker ){
             clog("disconnect: %s (%s)",	myhost, socket.js9.displays);
 	    // clean up working directory
-	    if( socket.js9.workDir && globalOpts.rmWorkDir ){
-		rmdir(socket.js9.workDir, function(error){
-		    if( error ){
-			cerr("can't delete workDir: ", error);
-		    }
-		});
+	    // use sync to prevent Electron.js from exiting too soon
+	    if( socket.js9.aworkDir && globalOpts.rmWorkDir ){
+		rmdir.sync(socket.js9.aworkDir);
 	    }
 	}
     });
-    // on displays: get the list of displays for this connection
+    // on displays: set the list of displays for this connection
     // returns: unique page id (not currently used)
     // for other implementations, this is needed if you want to:
     //   support sending external messages to JS9 (i.e., via js9 script)
-    socket.on("displays", function(obj, cbfunc) {
+    socket.on("initialize", function(obj, cbfunc) {
 	var myhost = getHost(io, socket);
+	var basedir, aworkdir, jpath;
 	if( !obj ){return;}
 	socket.js9 = {};
 	socket.js9.displays = obj.displays;
 	socket.js9.pageid = uuid.v4();
-	socket.js9.workDir = null;
-	if( fs.existsSync(globalOpts.workDir) ){
-	    socket.js9.workDir = globalOpts.workDir + "/" + socket.js9.pageid;
-	    try{ fs.mkdirSync(socket.js9.workDir, parseInt('0755',8)); }
+	socket.js9.aworkDir = null;
+	socket.js9.rworkDir = null;
+	// create top-level workDir, if necessary
+	// Electron.js might not be in the default location
+	basedir = globalOpts.workDir;
+	if( !path.isAbsolute(basedir) ){
+	    basedir = path.join(cdir, basedir);
+	}
+	// futz with the case of a link pointing nowhere
+	try { aworkdir = fs.readlinkSync(basedir); }
+	catch(e){ aworkdir = basedir; }
+	if( !fs.existsSync(aworkdir) ){
+	    try{ fs.mkdirSync(aworkdir, parseInt('0755',8)); }
+	    catch(e){}
+	}
+	// create workDir for this connection, if possible
+	if( fs.existsSync(aworkdir) ){
+	    // absolute path of workdir
+	    socket.js9.aworkDir = aworkdir + "/" + socket.js9.pageid;
+	    // relative path of workdir
+	    socket.js9.rworkDir = globalOpts.workDir + "/" + socket.js9.pageid;
+	    try{ fs.mkdirSync(socket.js9.aworkDir, parseInt('0755',8)); }
 	    catch(e){
-		cerr("can't create workDir: ", e.message);
-		socket.js9.workDir = null;
+		cerr("can't create page workDir: ", e.message);
+		socket.js9.aworkDir = null;
+		socket.js9.rworkDir = null;
 	    }
 	}
+	// can we find the helper program?
+	jpath = !!getFilePath(globalOpts.cmd, process.env.PATH, process.env);
+	// log results
         clog("connect: %s (%s)", myhost, socket.js9.displays);
+	if( cbfunc ){ cbfunc({pageid: socket.js9.pageid, js9helper: jpath}); }
+    });
+    // on display: add a display to the display list
+    // returns: unique page id (not currently used)
+    // for other implementations, this is needed if you want to:
+    //   support sending external messages to JS9 (i.e., via js9 script)
+    socket.on("addDisplay", function(obj, cbfunc) {
+	if( !obj ){return;}
+	socket.js9.displays = socket.js9.displays || [];
+	socket.js9.displays.push(obj.display);
 	if( cbfunc ){ cbfunc(socket.js9.pageid); }
+    });
+    socket.on("worker", function(obj, cbfunc) {
+	var main;
+	obj = obj || {};
+	main = connectWorker(io, socket, obj.pageid);
+	if( main ){
+	    // connect worker to main
+	    socket.js9 = main.js9;
+	    // signal this is a worker
+	    socket.js9worker = true;
+	    if( cbfunc ){ cbfunc("OK"); }
+	} else {
+	    if( cbfunc ){ cbfunc("ERROR"); }
+	}
     });
     // on alive: return "OK" to signal a valid connection
     socket.on("alive", function(obj, cbfunc) {
@@ -634,7 +909,7 @@ function socketioHandler(socket) {
     for(j=0; j<analysis.pkgs.length; j++){
 	for(i=0; i<analysis.pkgs[j].length; i++){
 	    a = analysis.pkgs[j][i];
-	    // check for require workDir
+	    // check for required workDir
 	    if( a.workDir && !globalOpts.workDir ){
 		continue;
 	    }
@@ -646,6 +921,53 @@ function socketioHandler(socket) {
 	    socket.on(m, xfunc);
 	}
     }
+    // on fits2fits: convert raw fits to fits representation file
+    // returns: object w/ errcode, stderr (error string), stdout (results)
+    // for other implementations, this is needed if you want to:
+    //   support conversion of fits to fits representation
+    socket.on("fits2fits", function(obj, cbfunc) {
+	var myenv, s, size;
+	var res = {stdout: null, stderr: null, errcode: 0,
+		   encoding: globalOpts.textEncoding};
+	// sanity checks
+	if( !fits2fits[0] || !fits2fits[0].action || !obj ){
+	    return;
+	}
+	// environment, and datapath (for finding data files)
+	myenv = JSON.parse(envs);
+	myenv.JS9_DATAPATH = getDataPath(obj.dataPath);
+	s = getFilePath(obj.fits, myenv.JS9_DATAPATH, myenv);
+	if( !s ){
+	    // did not find file, let js9 take care of it
+	    if( cbfunc ){
+		res.stdout = obj.fits;
+		cbfunc(res);
+	    }
+	    return;
+	}
+	if( obj.maxsize ){
+	    size = getFileSize(s);
+	    if( size < obj.maxsize ){
+		// file size does not warrant using imsection
+		if( cbfunc ){
+		    res.stdout = obj.fits;
+		    cbfunc(res);
+		}
+		return;
+	    }
+	}
+	if( (obj.fits.charAt(0) !== "/") && !obj.fits.match(/^\${JS9_DIR}/) ){
+	    obj.fits = "${JS9_DIR}/" + obj.fits;
+	}
+	// make up fits2fits command string from defined fits2fits action
+	obj.cmd = fits2fits[0].action;
+        if( obj.parent ){
+ 	    obj.cmd = obj.cmd + " -parent";
+        }
+	obj.cmd = obj.cmd + " " + obj.fits + " " + obj.sect;
+	// exec the conversion task (via a wrapper function)
+	execCmd(io, socket, obj, cbfunc);
+    });
     // on fits2png: convert raw fits to png
     // returns: object w/ errcode, stderr (error string), stdout (results)
     // for other implementations, this is needed if you want to:
@@ -658,6 +980,21 @@ function socketioHandler(socket) {
 	    // don't use a workdir
 	    obj.useWorkDir = false;
 	    // exec the conversion task (via a wrapper function)
+	    execCmd(io, socket, obj, cbfunc);
+	}
+    });
+    // on quotacheck: check whether temp directory is set up and under quota
+    // returns: object w/ errcode, stderr (error string), stdout (results)
+    // for other implementations, this is needed if you want to:
+    //   allow JS9 to check quota before executing a file-generating task
+    //   (e.g. upload a fits file)
+    socket.on("quotacheck", function(obj, cbfunc) {
+	if( !obj ){return;}
+	if( quotacheck[0] && quotacheck[0].action ){
+	    // make up quotacheck command string from defined quotacheck action
+	    obj.cmd = quotacheck[0].action;
+	    obj.rtype = quotacheck[0].rtype;
+	    // exec the task (via a wrapper function)
 	    execCmd(io, socket, obj, cbfunc);
 	}
     });
@@ -688,9 +1025,10 @@ function socketioHandler(socket) {
 	    catch(e){ cerr("can't add %s", plugins[i].name); }
 	}
     }
-}
+};
 
 // httpd handler: field pseudo-socket.io http requests
+// GET:
 // public api:
 // wget $MYHOST'/msg?{"id": "'$ID'", "cmd": "SetColormap", "args": ["red"]}'
 // wget $MYHOST'/msg?{"id": "'$ID'", "cmd": "GetColormap"}'
@@ -699,7 +1037,11 @@ function socketioHandler(socket) {
 // wget $MYHOST'/msg?{"id": "'$ID'", "cmd": "zoom"}'
 // analysis commands:
 // wget $MYHOST'/counts?{"id": "'$ID'", "cmd": "counts", "args": ["counts"]}'
-function httpHandler(req, res){
+//
+// POST:
+// wget -q -O- --post-data='{"id": "'$ID'", "cmd": "GetColormap"}' $MYHOST/msg
+// wget -q -O- --post-data='{"id": "'$ID'", "cmd": "SetColormap", "args": ["red"]}' $MYHOST/msg
+var httpHandler = function(req, res){
     var cmd, gobj, s, jstr;
     var body = "";
     // return error into to browser
@@ -806,11 +1148,18 @@ function httpHandler(req, res){
 	htmlerr("unsupported method: " + req.method);
 	return;
     }
-}
+};
 
 //
 // initialization
 //
+
+// add runtime directory to PATH
+if( process.env.PATH ){
+    process.env.PATH += (":" + cdir);
+}
+// save as json
+envs = JSON.stringify(process.env);
 
 // load secure preferences
 secure = loadSecurePreferences(securefile);
@@ -835,7 +1184,7 @@ if( secure ){
 app.setTimeout(0);
 
 // and connect with the socket.io server
-io = new Sockio(app);
+io = new Server(app, globalOpts.helperOpts);
 
 // for each socket.io connection, receive and process custom events
 io.on("connection", socketioHandler);
@@ -857,3 +1206,8 @@ if( process.env.NODEJS_FOO === "analysis" ){
 process.on("uncaughtException", function(e){
     cerr("uncaughtException: %s [%s]", e, e.stack || e.stacktrace || "");
 });
+
+// in case we are called as a module
+module.exports.globalOpts = globalOpts;
+module.exports.io = io;
+module.exports.app = app;

@@ -3,7 +3,7 @@
  */
 
 /*jslint bitwise: true, plusplus: true, sloppy: true, vars: true, white: true, browser: true, devel: true, continue: true, unparam: true, regexp: true */
-/*global $, jQuery, JS9, sprintf, Uint8Array */
+/*global $, JS9, Uint8Array */
 
 // create our namespace, and specify some meta-information and params
 JS9.Colorbar = {};
@@ -18,6 +18,9 @@ JS9.Colorbar.SCALED = false;
 JS9.Colorbar.TICKS = 10;
 // height of colorbar inside plugin
 JS9.Colorbar.COLORBARHEIGHT = 16;
+// JS9.Colorbar.COLORBARFONT = "11pt Arial";
+// max label length before we start skipping some labels
+JS9.Colorbar.MAXLABELSIZE = 10;
 
 // redraw colorbar on display
 JS9.Colorbar.display = function(im){
@@ -35,10 +38,15 @@ JS9.Colorbar.display = function(im){
     } else {
 	colorBuf = im.colorCells;
     }
+    // sanity check
+    if( !colorBuf ){
+	JS9.Colorbar.imageclear(im);
+	return;
+    }
     // first line gets colors from main display's rgb array
-    idx0 = Math.floor(colorBuf.length / canvasWidth + 0.5);
+    idx0 = colorBuf.length / canvasWidth;
     for(i=0, j=0; i<canvasWidth; i++, j+=4){
-	idx = i * idx0;
+	idx = Math.floor(i * idx0);
 	colorData[j]   = colorBuf[idx][0];
 	colorData[j+1] = colorBuf[idx][1];
 	colorData[j+2] = colorBuf[idx][2];
@@ -50,6 +58,10 @@ JS9.Colorbar.display = function(im){
     }
     // display colorbar
     this.ctx.putImageData(colorImg, 0, 0);
+    // if we are not displaying the tick marks, we're done
+    if( !this.showTicks ){
+	return;
+    }
     // display tick marks
     idx0 = im.psInverse.length / this.ticks;
     // clear tick display
@@ -78,6 +90,10 @@ JS9.Colorbar.display = function(im){
     }
     // draw tick marks and labels
     for(i=1; i<this.ticks; i++){
+	// skip repeats
+	if( (i > 1) && (tlabels[i] === tlabels[i-1]) ){
+	    continue;
+	}
 	ix = (i/this.ticks)*this.width;
 	iy = 0;
 	this.textctx.textAlign = "center";
@@ -86,39 +102,59 @@ JS9.Colorbar.display = function(im){
 	this.textctx.lineWidth = 1;
 	this.textctx.lineTo(ix, iy+5);
 	this.textctx.stroke();
+	// if the label is going to be wide, skip even ones
+	if( (tlabels[i].length >= JS9.Colorbar.MAXLABELSIZE) && (i % 2 === 0) ){
+	    continue;
+	}
 	this.textctx.fillText(tlabels[i], ix, iy+15);
     }
 };
 
 // constructor: add HTML elements to the plugin
-JS9.Colorbar.init = function(){
+JS9.Colorbar.init = function(width, height){
     var ratio = JS9.PIXEL_RATIO || 1;
     // on entry, these elements have already been defined:
     // this.div:      the DOM element representing the div for this plugin
     // this.divjq:    the jquery object representing the div for this plugin
-    // this.id:       the id ofthe div (or the plugin name as a default)
+    // this.id:       the id of the div (or the plugin name as a default)
     // this.display:  the display object associated with this plugin
     // this.dispMode: display mode (for internal use)
     //
     // set width and height of plugin itself
+    // display the tick marks? this will influence some height params ...
+    this.showTicks = this.divjq.attr("data-showTicks");
+    if( this.showTicks === undefined ){
+	this.showTicks = true;
+    } else if( this.showTicks === "true" ){
+	this.showTicks = true;
+    } else {
+	this.showTicks = false;
+    }
     this.width = this.divjq.attr("data-width");
     if( !this.width  ){
-	this.width  = JS9.Colorbar.WIDTH;
+	this.width = width || JS9.Colorbar.WIDTH;
     }
     this.divjq.css("width", this.width);
     this.width = parseInt(this.divjq.css("width"), 10);
     this.height = this.divjq.attr("data-height");
     if( !this.height ){
-	this.height  = JS9.Colorbar.HEIGHT;
+	// no tick mark display: default height becomes colorbar height
+	if( this.showTicks ){
+	    this.height = height || JS9.Colorbar.HEIGHT;
+	} else {
+	    this.height = height || JS9.Colorbar.COLORBARHEIGHT;
+	}
     }
     this.divjq.css("height", this.height);
     this.height = parseInt(this.divjq.css("height"), 10);
     // height of colorbar inside plugin
     this.colorbarWidth = this.width;
-    this.colorbarHeight = this.divjq.attr("data-colorbarHeight");
+    this.colorbarHeight = parseInt(this.divjq.attr("data-colorbarHeight"), 10);
     if( !this.colorbarHeight ){
 	this.colorbarHeight  = JS9.Colorbar.COLORBARHEIGHT;
     }
+    // but no larger than the overall height
+    this.colorbarHeight = Math.min(this.height, this.colorbarHeight);
     // display scaled or unscaled colorbar?
     this.scaled = this.divjq.attr("data-scaled");
     if( this.scaled === undefined ){
@@ -128,6 +164,7 @@ JS9.Colorbar.init = function(){
     } else {
 	this.scaled = false;
     }
+    // tick marks
     this.ticks = this.divjq.attr("data-ticks");
     if( !this.ticks ){
 	this.ticks = JS9.Colorbar.TICKS;
@@ -146,18 +183,28 @@ JS9.Colorbar.init = function(){
         .attr("height", this.colorbarHeight)
 	.appendTo(this.colorbarContainer);
     this.ctx = this.colorbarjq[0].getContext("2d");
-    // numeric text and tick marks
-    // (height and width changes deal with HiDPI text blur problems!)
-    this.textjq = $("<canvas>")
-	.addClass(JS9.Colorbar.BASE + "TextCanvas")
-	.attr("id", this.id + "TextCanvas")
-        .attr("width", this.width * ratio)
-        .attr("height", (this.height - this.colorbarHeight) * ratio)
-        .css("width", this.width + "px")
-        .css("height", (this.height - this.colorbarHeight) + "px")
-	.appendTo(this.colorbarContainer);
-    this.textctx = this.textjq[0].getContext("2d");
-    this.textctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    // set up for text display?
+    if( this.showTicks ){
+	// numeric text and tick marks
+	// (height and width changes deal with HiDPI text blur problems!)
+	this.textjq = $("<canvas>")
+	    .addClass(JS9.Colorbar.BASE + "TextCanvas")
+	    .attr("id", this.id + "TextCanvas")
+            .attr("width", this.width * ratio)
+            .attr("height", (this.height - this.colorbarHeight) * ratio)
+            .css("width", this.width + "px")
+            .css("height", (this.height - this.colorbarHeight) + "px")
+	    .appendTo(this.colorbarContainer);
+	this.textctx = this.textjq[0].getContext("2d");
+	// font specified in data property of div element?
+	this.colorbarFont = this.divjq.attr("data-colorbarFont");
+	if( this.colorbarFont ){
+	    this.textctx.font = this.colorbarFont;
+	} else if( JS9.Colorbar.COLORBARFONT ){
+	    this.textctx.font = JS9.Colorbar.COLORBARFONT;
+	}
+	this.textctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
     // display current colorbar, if necessary
     if( this.display.image ){
 	JS9.Colorbar.display.call(this, this.display.image);
@@ -171,10 +218,25 @@ JS9.Colorbar.imagedisplay = function(im){
     }
 };
 
+// callback when image is cleared or closed
+JS9.Colorbar.imageclear = function(im){
+    if( im && (im === im.display.image) ){
+	// clear buffers
+	if( this.ctx ){
+	    this.ctx.clear();
+	}
+	if( this.textctx ){
+	    this.textctx.clear();
+	}
+    }
+};
+
 // add this plugin into JS9
 JS9.RegisterPlugin(JS9.Colorbar.CLASS, JS9.Colorbar.NAME, JS9.Colorbar.init,
 		   {menuItem: "Colorbar",
 		    onimagedisplay: JS9.Colorbar.imagedisplay,
+		    onimageclear: JS9.Colorbar.imageclear,
+		    onimageclose: JS9.Colorbar.imageclear,
 		    help: "help/colorbar.html",
-		    winTitle: "JS9 Colorbar",
+		    winTitle: "Colorbar",
 		    winDims: [JS9.Colorbar.WIDTH, JS9.Colorbar.HEIGHT]});

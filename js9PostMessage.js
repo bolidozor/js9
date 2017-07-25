@@ -16,11 +16,12 @@
 
 /*jslint plusplus: true, vars: true, white: true, continue: true, unparam: true, regexp: true, browser: true, devel: true, nomen: true */
 
-var JS9PM = {};
-
-JS9PM = (function(JS9PM){
+// eslint-disable-next-line no-unused-vars
+var JS9PM = (function(){
 "use strict";
 
+/* return module */
+var JS9PM = {};
 JS9PM.error = function(s){
     alert("JS9PM ERROR: " + s);
     throw s;
@@ -64,6 +65,10 @@ JS9PM.send = function(pm, cmd, args, cb){
     if( !pm || !pm.id || !cmd ){
         JS9PM.error("invalid postMessage send for JS9");
     }
+    if( typeof args === "function" ){
+	cb = args;
+	args = null;
+    }
     obj = {cmd: cmd, args: args};
     if( cb ){
 	pm.cb[cmd] = cb;
@@ -73,4 +78,4 @@ JS9PM.send = function(pm, cmd, args, cb){
 
 // return namespace
 return JS9PM;
-}(JS9PM));
+}());

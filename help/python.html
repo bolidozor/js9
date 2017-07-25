@@ -19,11 +19,11 @@
 <p>
 The <b>pyjs9.py</b> module connects Python and JS9. It is
 available on GitHub:&nbsp;&nbsp;
-<a href="https://github.com/ericmandel/pyjs9" target="_blank">https://github.com/ericmandel/pyjs9</a>.
+<a href="https://github.com/ericmandel/pyjs9" target="_blank" rel="noopener noreferrer">https://github.com/ericmandel/pyjs9</a>.
 
 <p>
 The <b>JS9</b> class constructor connects to a single JS9 instance in a
-Web page. Once the connection is made, the returned JS9 object
+web page. Once the connection is made, the returned JS9 object
 supports the JS9 Public API and a shorter command-line syntax. You
 also can send/retrieve numpy arrays and astropy (or pyfits) hdulists
 to/from JS9.
@@ -31,13 +31,13 @@ to/from JS9.
 <p>
 pyjs9 communicates with the JS9 back-end server (which communicates with
 the browser itself). By default, pyjs9 utilizes the
-<a href="http://www.python-requests.org/en/latest/" target="_blank"> 
+<a href="http://www.python-requests.org/en/latest/" target="_blank" rel="noopener noreferrer">
 requests</a> module to communicate with the back-end server.
 However, if you install the
-<a href="https://pypi.python.org/pypi/socketIO-client" target="_blank">
+<a href="https://pypi.python.org/pypi/socketIO-client" target="_blank" rel="noopener noreferrer">
 socketIO_client</a>,
 pyjs9 will use the faster, 
-persistent <a href="http://socket.io/" target="_blank">socket.io</a> protocol.
+persistent <a href="http://socket.io/" target="_blank" rel="noopener noreferrer">socket.io</a> protocol.
 
 <p>
 Install pyjs9 from the GitHub repository using pip, as usual:
@@ -68,7 +68,7 @@ Optional dependencies for pyjs9 are:
 To run pyjs9:
 <pre>
     > # ensure JS9 node-server is running ...
-    > # visit your local JS9 Web page in your browser ...
+    > # visit your local JS9 web page in your browser ...
     > python
     ... (startup messages) ...
     >>> import pyjs9
@@ -93,14 +93,14 @@ To run pyjs9:
 </pre>
 
 <p>
-If you have internet connectivity, visit the JS9 Web page at
+If you have internet connectivity, visit the JS9 web page at
 http://js9.si.edu with your browser and:
 <pre>
     > python
     ... (startup messages) ...
     >>> import pyjs9
     >>>
-    >>> j = pyjs9.JS9('js9.si.edu')        # connect to JS9 Web site
+    >>> j = pyjs9.JS9('js9.si.edu')        # connect to JS9 web site
     >>>
     >>> j.GetColormap()
     {'bias': 0.5, 'colormap': 'grey', 'contrast': 1}
@@ -146,18 +146,18 @@ to the following limitations:
 </ul>
 
 <p>
-But note that you also can use Jupyter's <b>%%html</b> syntax to define an
-<b>HTML iframe</b> that will display an existing JS9 Web page:
+Note that you also can use Jupyter's <b>%%html</b> syntax to define an
+<b>HTML iframe</b> that will display an existing JS9 web page:
 <pre>
     %%html
     &lt;iframe src="http://js9.si.edu" width=1000 height=750&gt;&lt;/iframe&gt;
 </pre>
-or:
+or perhaps better still:
 <pre>
     %%html
-    &lt;iframe src="http://js9.si.edu/js9/js9basics.html" width=100% height=900&gt;&lt;/iframe&gt;
+    &lt;iframe src="http://js9.si.edu/js9/js9.html" width=100% height=900&gt;&lt;/iframe&gt;
 </pre>
-Since you are now accessing an existing Web site, all JS9 functions
+Since you are now accessing an existing web site, all JS9 functions
 should work as expected ... except for the use of locally stored
 preferences (i.e. the Preferences plugin) in Firefox. Currently,
 Firefox throws a security exception when an iframe tries to access
@@ -167,7 +167,7 @@ local storage, so this function does not work.
 We will continue to improve the Jupyter/JS9 connection. Please send us your
 comments and suggestions.
 
-<h5>Last updated: January 9, 2016</h5>
+<h5>Last updated: June 8, 2016</h5>
 </div>
 
 </body>

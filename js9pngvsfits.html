@@ -4,9 +4,11 @@
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=Edge;chrome=1" > 
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link type="image/x-icon" rel="shortcut icon" href="./favicon.ico">
   <link type="text/css" rel="stylesheet" href="js9support.css">
   <link type="text/css" rel="stylesheet" href="js9.css">
+  <script type="text/javascript" src="js9prefs.js"></script>
   <script type="text/javascript" src="js9support.min.js"></script>
   <script type="text/javascript" src="js9.min.js"></script>
   <script type="text/javascript" src="js9plugins.js"></script>
@@ -16,6 +18,12 @@
     <center><font size="+1">
     <b>JS9 Demo: PNG Representation Files vs FITS Files</b>
     </font> </center>
+<p>
+
+<b>NB: The use of PNG representation files is deprecated in favor of
+fits2fits large file support.</b> See
+<a href="help/repfile.html">Dealing with Large Files</a> for more information.
+
 <p>
 X-ray archives present special problems for displaying data. Instead
 of images pixels, X-ray data files consist of detected photons stored
@@ -38,18 +46,18 @@ automatically by the browser's optimized PNG support code.
 <li> PNG files can be tailored to the specific observation (compare the 3c58 files).
 </ul>
 <p>
-See <a href="js9/help/repfile.html" target="_blank">The PNG Representation
+See <a href="help/repfile.html" target="_blank">The PNG Representation
 File</a> for more information.
 
     <table cellspacing="30">
     <tr valign="top">
     <td>
-    Compressed FITS binary table files:
+    FITS binary tables (first three are compressed):
     <ul>
     <li> <a href='javascript:JS9.Load("fits/casa.fits.gz", {fits2png: false});'>CAS-A (Chandra)</a>
-    <li> <a href='javascript:JS9.Load("fits/3c58.fits.gz", {fits2png: false});'>3c58 (Chandra)</a>
     <li> <a href='javascript:JS9.Load("fits/ngkper.fits.gz", {fits2png: false, scale: "log"});'>gkper (Chandra)</a>
-    <li> <a href='javascript:JS9.Load("fits/snr.fits.gz[events][pi==pha]", {fits2png: false, scale: "log"});'>CTB 109 (Einstein, pi==pha filter)</a>
+    <li> <a href='javascript:JS9.Load("fits/3c58.fits.gz", {fits2png: false});'>3c58 (Chandra)</a>
+    <li> <a href='javascript:JS9.Load("fits/snr.fits[events][pi==pha]", {fits2png: false, scale: "log"});'>CTB 109 (Einstein, with 'pi==pha' filter)</a>
     </ul>
     </td>
     <td>
@@ -58,7 +66,7 @@ File</a> for more information.
     <li> <a href='javascript:JS9.Load("fits/casa.fits", {fits2png: true}, {display: "myJS9"});'>CAS-A (Chandra)</a>
     <li> <a href='javascript:JS9.Load("fits/3c58.fits", {fits2png: true}, {display: "myJS9"});'>3c58 (Chandra)</a>
     <li> <a href='javascript:JS9.Load("fits/ngkper.fits", {fits2png: true, scale: "log"}, {display: "myJS9"});'>gkper (Chandra)</a>
-    <li> <a href='javascript:JS9.Load("fits/snr.fits", {fits2png: true, scale: "log"}, {display: "myJS9"});'>CTB 109 (Einstein)</a>
+    <li> <a href='javascript:JS9.Load("fits/snr.fits", {fits2png: true, scale: "log"}, {display: "myJS9"});'>CTB 109 (Einstein, filtering via Analysis menu)</a>
     </ul>
     </td>
     </tr>
@@ -78,6 +86,7 @@ JS9 Demos:
 <li><a href='js9basics.html'>JS9 Demo: the basics</a>
 <li><a href='js9bespoke.html'>JS9 Demo: web page control of JS9</a>
 <li><a href='js9sizes.html'>JS9 Demo: setting the size of the JS9 display</a>
+<li><a href='js9large.html'>JS9 Demo: support for large FITS files</a>
 <li><a href='js9plugins.html'>JS9 Demo: adding plugins to JS9</a> 
 <li><a href='js9imexam.html'>JS9 Demo: the imexam plugin for JS9</a> 
 <li><a href='js9blend.html'>JS9 Demo: image blending</a> 
@@ -90,6 +99,7 @@ JS9 Demos:
 <li><a href='js9create.html'>JS9 Demo: creating a JS9 instance dynamically</a> 
 <li><a href='js9preload.html'>JS9 Demo: preloading images into JS9</a>
 <li><a href='js9bitpix.html'>JS9 Demo: displaying different FITS datatypes</a> 
+<li><a href='js9allinone.html'>JS9 Demo: using the all-in-one files</a> 
 <li><a href='js9pngvsfits.html'>JS9 Demo: PNG representation files vs FITS files</a> 
 </ul>
 </body>

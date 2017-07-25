@@ -4,7 +4,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "fitsio.h"
-#include "./astroem/jsfitsio.h"
+#include "jsfitsio.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #define EMDIR "/mydir"
@@ -75,7 +75,7 @@ void imstat(void *buf, int idim1, int idim2, int bitpix){
       cbuf = (char *)buf;
       sum += cbuf[ii];
       if (cbuf[ii] < minval) minval = cbuf[ii];  /* find min and  */
-      if (cbuf[ii] > maxval) maxval = dbuf[ii];  /* max values    */
+      if (cbuf[ii] > maxval) maxval = cbuf[ii];  /* max values    */
       break;
     case 16:
       sbuf = (short *)buf;
@@ -118,7 +118,7 @@ void imstat(void *buf, int idim1, int idim2, int bitpix){
     }
   }
   if (totpix > 0) meanval = sum / totpix;
-  printf("Image statistics:\n");
+  printf("Statistics for %d x %d [bitpix %d] image\n", idim1, idim2, bitpix);
   printf("  sum of pixels = %.3f\n", sum);
   printf("  mean value    = %.3f\n", meanval);
   printf("  minimum value = %.3f\n", minval);
@@ -134,12 +134,13 @@ int main(int argc, char *argv[])
   char *tfilt=NULL;
   char *imem=NULL;
   char *cardstr=NULL;
-  int c, args, hdutype, ncard;
-  int bin = 1;
-  int doheader = 0;
-  int doimstat = 0;
+  char *slice=NULL;
+  char tbuf[81];
+  int c, i, args, hdutype, ncard;
   int domem = 0;
   int status = 0;   /*  CFITSIO status value MUST be initialized to zero!  */
+  int start[2];
+  int stop[2];
   int dims[] = {IMDIM, IMDIM};
   void *buf;
   int idim1, idim2, bitpix;
@@ -160,27 +161,20 @@ int main(int argc, char *argv[])
 #endif
 
   /* process switch arguments */
-  while ((c = getopt(argc, argv, "b:d:him")) != -1){
+  while ((c = getopt(argc, argv, "ms:")) != -1){
     switch(c){
-    case 'b':
-      bin = atoi(optarg);
-      break;
-    case 'd':
-      dims[0] = atoi(optarg);
-      dims[1] = dims[0];
-      break;
-    case 'h':
-      doheader = 1;
-      break;
     case 'm':
       domem = 1;
+      break;
+    case 's':
+      slice = optarg;
       break;
     }
   }
   // filename is required, filter is optional
   args = argc - optind;
   if( args < 1 ){
-    ifile = strdup("./fits/casa.fits");
+    ifile = strdup("test/snr.ev.gz");
   } else {
     // emscripten: if path is relative, make it relative to the virtual dir
 #if NODEJS
@@ -208,33 +202,36 @@ int main(int argc, char *argv[])
     fptr = openFITSMem((void **)&imem, &ilen, EXTLIST, &hdutype, &status);
   } else {
     // open fits file for reading, go to a useful HDU
-    fptr = openFITSFile(ifile, EXTLIST, &hdutype, &status);
+    fptr = openFITSFile(ifile, READONLY, EXTLIST, &hdutype, &status);
   }
   errchk(status);
   fprintf(stdout, "File: %s\n", ifile);
 
   // get cards as a string
-  if( doheader ){
-    getHeaderToString(fptr, &cardstr, &ncard, &status);
-    errchk(status);
-    if( ncard && cardstr ){
-      fprintf(stdout, "Cards [%d]: %s\n", ncard, cardstr);
-      free(cardstr);
+  getHeaderToString(fptr, &cardstr, &ncard, &status);
+  errchk(status);
+  if( ncard && cardstr ){
+    // print cards individually to make it easier to diff
+    fprintf(stdout, "Cards [%d]:\n", ncard);
+    tbuf[80] = '\0';
+    for(i=0; i<ncard; i++){
+      memcpy(tbuf, &cardstr[i*80], 80);
+      fprintf(stdout, "%s\n", tbuf);
     }
+    free(cardstr);
   }
-
+  
   // process based on hdu type
   switch(hdutype){
   case IMAGE_HDU:
     // get image array
-    buf = getImageToArray(fptr, NULL, NULL, 
-			   &idim1, &idim2, &bitpix, &status);
+    buf = getImageToArray(fptr, NULL, NULL, slice,
+			   start, stop, &bitpix, &status);
+    idim1 = stop[0] - start[0] + 1;
+    idim2 = stop[1] - start[1] + 1;
     errchk(status);
-    printf("Image: %d x %d [bitpix %d]\n", idim1, idim2, bitpix);
     // image statistics on image section
-    if( doimstat ){
-      imstat(buf, idim1, idim2, bitpix);
-    }
+    imstat(buf, idim1, idim2, bitpix);
     // clean up
     free(buf);
     break;
@@ -246,19 +243,17 @@ int main(int argc, char *argv[])
 	  tfilt=(char *)strtok(NULL, ";")){
 	// image from table
 	fprintf(stdout, "Filter: %s\n", tfilt);
-	ofptr = filterTableToImage(fptr, tfilt, colname, dims, NULL, bin, 
+	ofptr = filterTableToImage(fptr, tfilt, colname, dims, NULL, 1, 
 				   &status);
 	errchk(status);
 	// get image array
-	buf = getImageToArray(ofptr, dims, NULL, 
-			      &idim1, &idim2, &bitpix, &status);
+	buf = getImageToArray(ofptr, dims, NULL, slice,
+			      start, stop, &bitpix, &status);
 	errchk(status);
-	printf("Binned image: %d x %d, [bin %d] -> %d x %d [bitpix %d]\n",
-	       dims[0], dims[1], bin, idim1, idim2, bitpix);
+	idim1 = stop[0] - start[0] + 1;
+	idim2 = stop[1] - start[1] + 1;
 	// image statistics on image section
-	if( doimstat ){
-	  imstat(buf, idim1, idim2, bitpix);
-	}
+	imstat(buf, idim1, idim2, bitpix);
 	// clean up
 	free(buf);
 	closeFITSFile(ofptr, &status);
@@ -266,18 +261,16 @@ int main(int argc, char *argv[])
       }
     } else {
       // image from table
-      ofptr = filterTableToImage(fptr, NULL, colname, dims, NULL, bin, &status);
+      ofptr = filterTableToImage(fptr, NULL, colname, dims, NULL, 1, &status);
       errchk(status);
       // get image array
-      buf = getImageToArray(ofptr, dims, NULL, 
-			    &idim1, &idim2, &bitpix, &status);
+      buf = getImageToArray(ofptr, dims, NULL, slice,
+			    start, stop, &bitpix, &status);
       errchk(status);
-      printf("Binned image: %d x %d, [bin %d] -> %d x %d [bitpix %d]\n",
-	     dims[0], dims[1], bin, idim1, idim2, bitpix);
+      idim1 = stop[0] - start[0] + 1;
+      idim2 = stop[1] - start[1] + 1;
       // image statistics on image section
-      if( doimstat ){
-	imstat(buf, idim1, idim2, bitpix);
-      }
+      imstat(buf, idim1, idim2, bitpix);
       // clean up
       free(buf);
       closeFITSFile(ofptr, &status);

@@ -105,13 +105,16 @@ CP =		cp -p
 
 CC =		@CC@
 
-CC_SW =	${CFLAGS} ${AC_FLAGS} ${INCS}
+CC_SW =		 -DFITS2PNG=$(FITS2PNG) ${CFLAGS} ${AC_FLAGS} ${INCS}
 
-DEPEND_SW = ${CFLAGS} -I. ${AC_FLAGS}
+DEPEND_SW = 	${CFLAGS} -I. ${AC_FLAGS}
 
 # type of backend server (or none)
 HELPER =	@HELPER@
 USEHELPER =	@USEHELPER@
+
+# do we build and use tpos?
+USEFITS2PNG =	@USEFITS2PNG@
 
 # which library
 FITSLIB =	@FITSLIB@
@@ -124,16 +127,24 @@ CGIXPATH =   	@CGIXPATH@
 # this is for SAO install only ... I think!
 SAODIR =	@SAODIR@
 
-WEBDIRS	=	plugins params js css images
+WEBDIRS	=	plugins params js css font images
 
 BEDIRS =	node_modules analysis-plugins analysis-wrappers
 
-WEBFILES =	js9.js js9.min.js \
+WEBFILES =	js9.js js9.min.js js9worker.js \
 		js9support.js js9support.min.js js9support.css js9plugins.js \
 		js9support.txt js9.css fitsy.js fitsy.min.js \
 		$(ALLIN1).js $(ALLIN1).css \
-		js9Msg.js js9Helper.js js9Prefs-default.json \
-		js9Prefs.json favicon.ico index.html
+		js9Msg.js js9PostMessage.js js9Helper.js \
+		js9Electron.js js9Regions.js \
+		js9Prefs-default.json js9Prefs.json \
+		js9prefs-default.js js9prefs.js \
+		favicon.ico index.html
+
+RMFILES =	analysis-plugins/imageSection.json
+
+GZFILES =	js9.js js9.min.js js9support.js js9support.min.js \
+		js9plugins.js js9-allinone.js
 
 SAOFILES =	index.html
 
@@ -141,15 +152,33 @@ CSSFILES =	css/jquery.contextMenu.css css/dhtmlwindow.css  \
 		css/tabcontent.css
 
 PLCSSFILES =	plugins/core/blend.css plugins/core/blink.css \
-		plugins/core/colorbar.css
+		plugins/core/colorbar.css plugins/core/cube.css \
+		plugins/core/divs.css \
+		plugins/core/imarith.css plugins/core/keyboard.css \
+		plugins/core/layers.css plugins/core/mef.css \
+		plugins/core/mousetouch.css
 
-JSFILES =	js/jquery.min.js js/jquery-ui.min.js js/jquery.contextMenu.min.js js/jquery.flot.min.js js/jquery.flot.errorbars.min.js js/jquery.flot.navigate.min.js js/jquery.flot.selection.min.js js/flot-zoom.min.js js/sprintf.min.js js/dhtmlwindow.min.js js/dhtmlwindow_blurb.js js/fabric.min.js js/pako_inflate.min.js js/FileSaver.min.js js/canvas-toBlob.js js/tabcontent.js js/astroem.js js/arrive.min.js js/jquery.doubletap.min.js js/jquery.flot.axislabels.js js/spin.js js/ElementQueries.js js/ResizeSensor.js js/gaussblur.js js/imagefilters.js
+JSFILES =	js/winmod.js js/jquery.min.js js/jquery-ui.min.js js/jquery.contextMenu.min.js js/jquery.flot.min.js js/jquery.flot.errorbars.min.js js/jquery.flot.navigate.min.js js/jquery.flot.resize.min.js js/jquery.flot.selection.min.js js/flot-zoom.min.js js/sprintf.min.js js/dhtmlwindow.min.js js/dhtmlwindow_blurb.js js/fabric.min.js js/pako_inflate.min.js js/FileSaver.min.js js/canvas-toBlob.js js/tabcontent.js js/astroem.js js/arrive.min.js js/jquery.doubletap.min.js js/jquery.flot.axislabels.js js/spin.js js/ElementQueries.js js/ResizeSensor.js js/gaussblur.js js/imagefilters.js js/jquery.ui.touch-punch.js
+
+JSLINT =	js9.js js9worker.js js9Helper.js js9Electron.js js9Msg.js \
+		js9PostMessage.js js9Regions.js js9Test.js astroem/post.js
 
 PLUGINFILES =	plugins/archive/archive.js \
 		plugins/fitsy/binning.js \
 		plugins/core/blend.js \
 		plugins/core/blink.js \
 		plugins/core/colorbar.js \
+		plugins/core/console.js \
+		plugins/core/cube.js \
+		plugins/core/divs.js \
+		plugins/core/imarith.js \
+		plugins/core/info.js \
+		plugins/core/keyboard.js \
+		plugins/core/layers.js \
+		plugins/core/magnifier.js \
+		plugins/core/mef.js \
+		plugins/core/menubar.js \
+		plugins/core/panner.js \
 		plugins/core/prefs.js \
 		plugins/imexam/imexam.js \
 		plugins/imexam/encircled.js \
@@ -161,7 +190,7 @@ PLUGINFILES =	plugins/archive/archive.js \
 		plugins/imexam/3dplot.js \
 		plugins/imexam/contour.js
 
-PREFFILES =	js9Prefs.json
+PREFFILES =	js9Prefs.json js9prefs.js
 
 CGIFILES =	js9Helper.cgi
 
@@ -176,7 +205,8 @@ LWEBSITE=	http://localhost/~eric/
 
 SRCS =		tpos.c js9helper.c
 
-PROGS =		tpos js9helper
+PROGS =		js9helper
+ALLPROGS =	$(PROGS) tpos
 
 JS9TESTS =	js9Test.js js9Test.html js9Tests
 
@@ -191,7 +221,8 @@ SCRIPTS2 =	js9
 MFILES =	Makefile Makefile.in config.guess config.sub \
 		configure configure.ac install-sh js9helper.pc.in js9.in \
 		saoconfig saoprefs.sed nnode mkallinone mkhelper mkjs9 \
-		util astroem js9Helper-default.cgi js9load README
+		util astroem js9Helper-default.cgi js9load README.md \
+		js9.scpt js9.app
 
 UTILLIB	=	libutil.a
 
@@ -200,7 +231,7 @@ TPOSOBJS =	tpos.o @CFITSIOOBJS@
 CIMTESTOBJS =	cimtest.o @CFITSIOOBJS@
 
 ifeq ($(FITSLIB), cfitsio)
-HELPEROBJS =	js9helper.o jsfitsio.o
+HELPEROBJS =	js9helper.o jsfitsio.o listhdu.o healpix.o
 else
 HELPEROBJS =	js9helper.o
 endif
@@ -210,8 +241,15 @@ UTILOBJS = 	$(wildcard util/*.o)
 all:		progs helper
 
 ifeq ($(USEHELPER), yes)
-progs:		$(PROGS)
+ifeq ($(USEFITS2PNG), yes)
+FITS2PNG=1
+progs:		$(ALLPROGS)
 else
+FITS2PNG=0
+progs:		$(PROGS)
+endif
+else
+FITS2PNG=0
 progs:	
 endif
 
@@ -233,11 +271,13 @@ cimtest:	$(CIMTESTOBJS)
 
 prefs:		FORCE
 		@(echo "copying default preferences to js9Prefs.json"; \
-		  cp -p js9Prefs-default.json js9Prefs.json;)
+		  cp -p js9Prefs-default.json js9Prefs.json; \
+		  cp -p js9prefs-default.js js9prefs.js;)
 
 saoprefs:	FORCE
 		@(echo "editing js9Prefs for SAO installations ..."; \
 		sed -f saoprefs.sed < js9Prefs.json > js9Prefs-sao.json; \
+		sed -f saoprefs.sed < js9prefs.js > js9prefs-sao.js; \
 		echo "editing helper file for SAO installations ..."; \
 		./mkhelper "$(HELPER)" \
 		"$(CGIDIR)" "$(CGIURL)" "$(CGIXPATH)" js9Prefs-sao.json;)
@@ -296,7 +336,19 @@ fitsymin:	FORCE
 refresh:	js9support fitsymin js9min
 
 jslint:		FORCE
-		@(jslint js9.js fitsy.js js9Helper.js js9Msg.js js9Test.js)
+		@(jslint $(JSLINT))
+
+eslint:		FORCE
+		@(for file in $(JSLINT); do      \
+		      echo $$file;               \
+		      eslint $$file;             \
+		done)
+
+eslint2:	FORCE
+		@(for file in `ls plugins/core/*.js`; do      \
+		      echo $$file;               \
+		      eslint $$file;             \
+		done)
 
 tar:		FORCE
 		($(RM) config.cache; \
@@ -317,7 +369,7 @@ install-binaries: FORCE
 		else true; \
 		fi; \
 	    done; \
-	  for i in $(PROGS) ; \
+	  for i in $(ALLPROGS) ; \
 	    do \
 		if [ -f $$i.exe ] ; then \
 		    echo "installing $$i.exe" ; \
@@ -357,7 +409,8 @@ install-scripts: $(SCRIPTS) $(SCRIPTS2)
 install-web:		install-webdirs install-webfiles install-webcgi
 
 install-webdirs:	FORCE
-	@(echo "Installing web directories ..."; \
+	@(if [ x$(WEBDIR) != x ]; then \
+	 echo "Installing web directories ..."; \
 	 for i in $(WEBDIRS) $(WEBHELP); do \
 	    if [ x$(WEBDIR) != x ]; then \
 		mkdir -p $(WEBDIR); \
@@ -375,15 +428,23 @@ install-webdirs:	FORCE
 		    tar cf - $$i | (cd $(WEBDIR); tar xf -); \
 		fi; \
            done; \
-	 fi;)
+	 fi; \
+         else \
+	    echo "nothing to install for web directories ..." ; \
+         fi;)
 
 install-webfiles:	FORCE
-	@(echo "Installing web files ..."; \
+	@(if [ x$(WEBDIR) != x ]; then \
+	echo "Installing web files ..."; \
 	if [ x$(WEBDIR) != x ]; then \
 		mkdir -p $(WEBDIR); \
 		if [ -f $(WEBDIR)/js9Prefs.json ] ; then \
 		    echo "moving aside old js9Prefs.json" ; \
 		    mv $(WEBDIR)/js9Prefs.json{,-old}; \
+	        fi; \
+		if [ -f $(WEBDIR)/js9prefs.js ] ; then \
+		    echo "moving aside old js9prefs.js" ; \
+		    mv $(WEBDIR)/js9prefs.js{,-old}; \
 	        fi; \
 	fi; \
 	for i in $(PREFFILES) $(WEBFILES) js9*.html ; do\
@@ -395,7 +456,16 @@ install-webfiles:	FORCE
 		fi; \
 		tar cf - $$i | (cd $(WEBDIR); tar xf -); \
 	    fi; \
-        done;)
+        done; \
+	for i in $(RMFILES); do\
+	    if [ -r $(WEBDIR)/$$i ]; then \
+	        echo "removing $$i file ..."; \
+	        rm -f $(WEBDIR)/$$i; \
+	    fi; \
+        done; \
+        else \
+          echo "nothing to install for web files ..." ; \
+        fi;)
 
 install-webcgi:	FORCE
 	@(if [ -d "$(CGIDIR)" ]; then \
@@ -413,7 +483,7 @@ install-webcgi:	FORCE
 	        fi; \
 	    done; \
 	else \
-	    echo "nothing to install in cgi (no helper configured)"; \
+	    echo "nothing to install in cgi"; \
 	fi;)
 
 install-webdata:	FORCE
@@ -427,7 +497,15 @@ install-webdata:	FORCE
 	    fi; \
          done;)
 
-install-sao:	saoprefs install-webcgi install-js9tests
+install-gzip:	FORCE
+	@(for i in $(GZFILES) ; do\
+	    if [ -f $(WEBDIR)/$$i ] ; then \
+	        echo "gzip'ing $$i" ; \
+	        gzip -c $(WEBDIR)/$$i > $(WEBDIR)/$$i.gz; \
+	    fi; \
+         done;)
+
+install-sao:	install-gzip saoprefs install-webcgi install-js9tests
 		@(if [ -d "$(SAODIR)" ]; then \
 		    for i in $(SAOFILES) ; \
 		    do \
@@ -437,18 +515,15 @@ install-sao:	saoprefs install-webcgi install-js9tests
 			fi; \
 		    done; \
 		  fi; \
-		  echo "installing SAO js9Prefs.json"; \
+		  echo "installing SAO prefs"; \
 		  $(CP) js9Prefs-sao.json $(WEBDIR)/js9Prefs.json; \
+		  $(CP) js9prefs-sao.js $(WEBDIR)/js9prefs.js; \
 		  if [ -d js9debugextras ]; then \
 		    echo "installing js9debugextras"; \
 		    tar cf - js9debugextras | (cd $(WEBDIR); tar xf -); \
 		  fi)
 
-install-saoprefs:	saoprefs
-		  @(echo "installing SAO js9Prefs.json"; \
-		  $(CP) js9Prefs-sao.json $(WEBDIR)/js9Prefs.json;)
-
-install-js9tests:	FORCE
+install-js9tests:FORCE
 		@(echo "installing js9tests ..."; \
 		  tar cf - $(JS9TESTS) | (cd $(WEBDIR) && tar xf -))
 
@@ -462,6 +537,8 @@ gitprefs:	FORCE
 		@(if [ -d .git ]; then \
                      git checkout -- js9Prefs-sao.json; \
 		     git checkout -- js9Prefs.json; \
+                     git checkout -- js9prefs-sao.js; \
+		     git checkout -- js9prefs.js; \
 		  fi;)
 
 release:	clean gitprefs
@@ -505,11 +582,15 @@ ckwebsite:	FORCE
 		  echo "OK"; \
 		fi;)
 
+view-readme:	FORCE
+		@(grip)
+
 clean:		FORCE
 		@($(RM) *.a *.so *.dylib *.o *.exe core core.* errs *pure* \
 			foo* *~ \#* TAGS *.E a.out errors \
-			$(UTILLIB) $(PROGS) $(CGIFILES) $(TESTPROGS) \
-			gmon.out *.pg *.bak  *js9Prefs.json-orig \
+			$(UTILLIB) $(ALLPROGS) $(TESTPROGS) $(CGIFILES) \
+			gmon.out *.pg *.bak  \
+			*js9Prefs.json-orig *js9prefs.js-orig \
 			config.info config.log ltest \
 			js/*~ params/*~ \
 			doc/*~ notes/*~ test/*~ help/*~ help/*.bak \
@@ -547,11 +628,20 @@ tpos.o:		tpos.c
 jsfitsio.o:	$(JSFITSIO)/jsfitsio.c
 		$(CC) -c $(CC_SW) -o $@ $+
 
+listhdu.o:	$(JSFITSIO)/listhdu.c
+		$(CC) -c $(CC_SW) -o $@ $+
+
+healpix.o:	$(JSFITSIO)/healpix.c
+		$(CC) -c $(CC_SW) -o $@ $+
+
 js9helper.o:	js9helper.c
 		$(CC) -c $(CC_SW) -o $@ $+
 
 pngdisp.o:	pngdisp.c
 		$(CC) -c $(CC_SW) -o $@ $+
+
+cimtest.o:	cimtest.c
+		$(CC) -I ./astroem/jsfitsio -c $(CC_SW) -o $@ $+
 
 configure:	configure.ac
 		autoconf

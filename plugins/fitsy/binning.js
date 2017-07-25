@@ -1,187 +1,172 @@
 /*jslint white: true, vars: true, plusplus: true, nomen: true, unparam: true */
-/*globals $, JS9 */ 
+/*globals $, JS9, Fitsy */
 
 "use strict";
 
-
 (function() {
 
+    /* maybePhysicalToImage: it's a hack!
+       The physical position defined by LTM/LTV is not always the file position,
+       For example, if the file foo.fits was created from another file:
+           funimage somefile.fits'[*,*,2]' foo.fits
+       its LTM/LTV keywords will referring to the parent, instead of itself.
+       In such a case, we want to convert physical position to image position
+       of the physical file.
+       This situation is signalled by the presence of a parent lcs object.
+    */
+    function maybePhysicalToImage(im, pos){
+	var lpos, ipos, npos;
+	if( im.imtab === "image" && im.parent && im.parent.lcs &&
+	    pos.x && pos.y ){
+	    lpos = {x: pos.x, y: pos.y};
+	    ipos = JS9.Image.prototype.logicalToImagePos.call(im.parent, lpos,
+							      "ophysical");
+	    npos = {x: Math.floor(ipos.x+0.5), y: Math.floor(ipos.y+0.5)};
+	}
+	return npos;
+    }
+
     function reBinImage(div, display) {
-
-    JS9.debug = 2;
-
-	var i, j;
+	var hdu, opts, npos;
 	var im   = JS9.GetImage({display: display});
 	var form = $(div).find(".binning-form")[0];
-
-	if ( !im ) { return; }
-
-	var options = $.extend(true, {}, JS9.fits.options
-	    , { table: { cx: form.cx.value , cy: form.cy.value  
-	    	       , nx: form.nx.value , ny: form.ny.value
-		       , bin: form.bin.value , filter: form.filter.value }
-	      });
-
-	var hdu = im.raw.hdu;
-
-	if ( hdu.type === "image" ) {
-
-	  switch(JS9.fitsLibrary()){
-	  case "fitsy":
-	    var bin = Math.round(Number(form.bin.value));
-	    hdu.bin        = bin;
-	    form.bin.value = bin;
-
-	    var nx = hdu.head["NAXIS1"]
-	    var ny = hdu.head["NAXIS2"]
-
-	    var xx = Math.round(nx/bin);
-	    var yy = Math.round(ny/bin);
-
-	    hdu.image = new Float32Array(nx*ny);
-
-	    for ( j = 0; j < ny; j++ ) {
-	    for ( i = 0; i < nx; i++ ) {
-		hdu.image[Math.floor(j/bin)*xx+Math.floor(i/bin)] += hdu.filedata[j*nx+i];
+	var rebin = function(im, hdu, display){
+	    var ss;
+	    var rexp = /(\[.*[a-zA-Z0-9_].*\])\[.*\]/;
+	    var topts = {display: display};
+	    if( form.separate.checked ){
+		// replace old extensions with new
+		// would be better to combine them, but ...
+		if( form.filter.value ){
+		    ss = '[' + form.filter.value.replace(/\s+/g,"") + ']';
+		    topts.id = im.id.replace(rexp, "$1") + ss;
+		    if( im.fitsFile ){
+			topts.file = im.fitsFile.replace(rexp, "$1") + ss;
+		    } else {
+			topts.file = topts.id;
+		    }
+		}
+		JS9.checkNew(new JS9.Image(hdu, topts));
+	    } else {
+		JS9.RefreshImage(hdu, topts);
 	    }
+	};
+	if ( !im || !im.raw ) { return; }
+
+	hdu = im.raw.hdu;
+
+	switch(JS9.fitsLibrary()){
+	case "fitsy":
+	    if ( hdu.imtab === "image" ) {
+		JS9.error("image binning not implemented");
+	    } else {
+		opts = $.extend(true, {}, JS9.fits.opts,
+	        { table: { xcen: form.xcen.value , ycen: form.ycen.value,
+			   xdim: form.xdim.value , ydim: form.ydim.value,
+			   bin: form.bin.value , filter: form.filter.value }
+	        });
+		Fitsy.readTableHDUData(hdu.fits, hdu, opts, function(hdu){
+		    rebin(im, hdu, display);
+		});
 	    }
-
-	    hdu.dmin = Number.MAX_VALUE;
-	    hdu.dmax = Number.MIN_VALUE;
-
-	    for ( i = 0; i < xx*yy; i++ ) {
-		hdu.dmin    = Math.min(hdu.dmin, hdu.image[i]);
-		hdu.dmax    = Math.max(hdu.dmax, hdu.image[i]);
-	    }
-
-	    hdu.axis[1] = xx;
-	    hdu.axis[2] = yy;
-	    hdu.bitpix  = -32;
-
-	    hdu.head  = Fitsy.clone(hdu.filehead);
-	    hdu.card  = Fitsy.clone(hdu.filecard);
-
-	    // Simple standard FITS WCS
-	    //
-	    Fitsy.cardcopy(hdu, "CDELT1",   hdu, "CDELT1", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CRPIX1",   hdu, "CRPIX1", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CDELT2",   hdu, "CDELT2", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CRPIX2",   hdu, "CRPIX2", undefined, function(x) { return x/bin; });
-
-	    // Adjust the CD Matrix
-	    //
-	    Fitsy.cardcopy(hdu, "CD1_1",    hdu, "CD1_1", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CD1_2",    hdu, "CD1_2", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CD2_1",    hdu, "CD2_1", undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "CD2_2",    hdu, "CD2_2", undefined, function(x) { return x/bin; });
-
-
-	    // DSS-II image - this is just a guess
-	    //
-	    Fitsy.cardcopy(hdu, "PLTSCALE", hdu, "PLTSCALE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "XPIXELSZ", hdu, "XPIXELSZ", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CNPIX1",   hdu, "CNPIX1",   undefined, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "YPIXELSZ", hdu, "YPIXELSZ", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "CNPIX2",   hdu, "CNPIX2",   undefined, function(x) { return x/bin; });
-
-	    // Fix up some random commonly used keywords
-	    //
-	    Fitsy.cardcopy(hdu, "PIXSCALE", hdu, "PIXSCALE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "SECPIX",   hdu, "SECPIX",   undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "SECPIX1",  hdu, "SECPIX1",  undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "SECPIX2",  hdu, "SECPIX2",  undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "XPIXSIZE", hdu, "XPIXSIZE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "YPIXSIZE", hdu, "YPIXSIZE", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "PIXSCAL1", hdu, "PIXSCAL1", undefined, function(x) { return x*bin; });
-	    Fitsy.cardcopy(hdu, "PIXSCAL2", hdu, "PIXSCAL2", undefined, function(x) { return x*bin; });
-
-	    Fitsy.cardcopy(hdu, "LTM1_1",   hdu, "LTM1_1", 1.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTM1_2",   hdu, "LTM1_2", 0.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTM2_1",   hdu, "LTM2_1", 0.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTM2_2",   hdu, "LTM2_2", 1.0, function(x) { return x/bin; });
-
-	    Fitsy.cardcopy(hdu, "LTV1",     hdu, "LTV1",   0.0, function(x) { return x/bin; });
-	    Fitsy.cardcopy(hdu, "LTV2",     hdu, "LTV2",   0.0, function(x) { return x/bin; });
-
-	    JS9.RefreshImage(hdu, {display: display});
 	    break;
-	    case "cfitsio":
-	      JS9.error("image binning not yet implemented using cfitsio");
-	      break;
-          }
-	} else {
-	    switch(JS9.fitsLibrary()){
-	    case "fitsy":
-		Fitsy.readTableHDUData(hdu.fits, hdu, options, function(hdu){
-	            JS9.RefreshImage(hdu, {display: display});
-		});
-		break;
-	    case "cfitsio":
-		JS9.fits.getFITSImage(hdu.fits, hdu, options, function(hdu){
-		    JS9.RefreshImage(hdu, {display: display});
-		});
-		break;
+	case "cfitsio":
+	    opts = {xcen: 0, ycen: 0, xdim: 0, ydim: 0, bin: 1, filter: ""};
+	    if( JS9.isNumber(form.xcen.value) ){
+		opts.xcen = parseFloat(form.xcen.value);
 	    }
+	    if( JS9.isNumber(form.ycen.value) ){
+		opts.ycen = parseFloat(form.ycen.value);
+	    }
+	    npos = maybePhysicalToImage(im, {x: opts.xcen, y: opts.ycen});
+	    if( npos ){
+		opts.xcen = npos.x;
+		opts.ycen = npos.y;
+	    }
+	    if( JS9.isNumber(form.xdim.value) ){
+		opts.xdim = Math.floor(parseFloat(form.xdim.value));
+	    }
+	    if( JS9.isNumber(form.ydim.value) ){
+		opts.ydim = Math.floor(parseFloat(form.ydim.value));
+	    }
+	    if( JS9.isNumber(form.bin.value) ){
+		opts.bin = Math.floor(parseFloat(form.bin.value));
+	    }
+	    opts.filter = form.filter.value;
+	    opts.separate = $(form.separate).prop("checked");
+	    im.displaySection(opts);
+	    break;
 	}
     }
 
     function getBinParams(div, display) {
+	var im, ipos, lpos, form, hdu, bin;
+	var dval1 = 1;
 	if ( display === undefined ) {
 	    div     = this.div;
 	    display = this.display;
 	}
-	var im   = JS9.GetImage({display: display});
+	im   = JS9.GetImage({display: display});
 
 	if ( im ) {
-	    var form = $(div).find(".binning-form")[0];
+	    form = $(div).find(".binning-form")[0];
 
 	    if ( im.raw.hdu !== undefined ) {
+		hdu = im.raw.hdu;
+		hdu.bin = hdu.bin || 1;
 		form.rebin.disabled = false;
-		form.bin.disabled = false;
+	        if ( hdu.table !== undefined ) {
+		    form.bin.value = String(Math.floor(hdu.table.bin));
+		    form.xcen.value = String(Math.floor(hdu.table.xcen));
+		    form.ycen.value = String(Math.floor(hdu.table.ycen));
+		    form.xdim.value = String(Math.floor(hdu.table.xdim));
+		    form.ydim.value = String(Math.floor(hdu.table.ydim));
+		    form.filter.value = hdu.table.filter || "";
 
-	        if ( im.raw.hdu.table !== undefined ) {
-		    form.bin.value = im.raw.hdu.table.bin;
-		     form.cx.value = im.raw.hdu.table.cx;
-		     form.cy.value = im.raw.hdu.table.cy;
-		     form.nx.value = im.raw.hdu.table.nx;
-		     form.ny.value = im.raw.hdu.table.ny;
-		     form.filter.value = im.raw.hdu.table.filter || "";
-
-
-		     form.cx.disabled = false;
-		     form.cy.disabled = false;
-		     form.nx.disabled = false;
-		     form.ny.disabled = false;
-		     form.filter.disabled = false;
+		    form.bin.disabled = false;
+		    form.xcen.disabled = false;
+		    form.ycen.disabled = false;
+		    form.xdim.disabled = false;
+		    form.ydim.disabled = false;
+		    form.filter.disabled = false;
 		} else {
-		    if ( im.raw.hdu.bin != undefined ) {
-			form.bin.value = im.raw.hdu.bin;
-		    } else {
-			form.bin.value = 1;
+		    // incorporate ltm value in bin, if necessary
+		    if( im.parentFile && im.raw.header ){
+			dval1 = im.raw.header.LTM1_1 || 1;
 		    }
+		    ipos = {x: im.raw.width / 2, y: im.raw.height / 2};
+		    lpos = im.imageToLogicalPos(ipos);
+		    form.xcen.value = String(Math.floor(lpos.x));
+		    form.ycen.value = String(Math.floor(lpos.y));
+		    bin = Math.floor(((hdu.bin || 1) / dval1) + 0.5);
+		    form.bin.value = String(bin);
+		    form.xdim.value = String(Math.floor(hdu.naxis1 * bin));
+		    form.ydim.value = String(Math.floor(hdu.naxis2 * bin));
+		    form.filter.value = im.raw.filter || "";
 
-		     form.cx.disabled = true;
-		     form.cy.disabled = true;
-		     form.nx.disabled = true;
-		     form.ny.disabled = true;
-		     form.filter.disabled = true;
+		    form.bin.disabled = false;
+		    form.xcen.disabled = false;
+		    form.ycen.disabled = false;
+		    form.xdim.disabled = false;
+		    form.ydim.disabled = false;
+		    form.filter.disabled = false;
 		}
 	    } else {
 		form.rebin.disabled = true;
-		  form.bin.disabled = true;
 	    }
 	}
     }
 
     function binningInit() {
+	var that = this;
 	var div = this.div;
 	var display = this.display;
 	var win = this.winHandle;
 	var disclose = "";
 	var im  = JS9.GetImage({display: this.display});
 
-	if( !im || (im && (!im.raw.hdu || !im.raw.hdu.table)) ){
-	    div.innerHTML = '<p><center>Binning is available for FITS binary tables.</center>';
+	if( !im || (im && !im.raw.hdu) ){
+	    div.innerHTML = '<p style="padding: 5px"><center>FITS image sections, with binning and filtering</center>';
 	    return;
 	}
 
@@ -189,65 +174,71 @@
 	    disclose = 'disabled="disabled"';
 	}
 
-	$(div).html('<form class="binning-form" style="margin: 5px">				\
-	    <table><tr>	<td>Bin&nbsp;Factor</td>							\
+	/*eslint-disable no-multi-str */
+	$(div).html('<form class="binning-form" style="margin: 0px; padding: 8px; width: 100%; height: 100%">	\
+	    <table style="margin:0px; cellspacing:0; border-collapse:separate; border-spacing:4px 10px;"> \
+	           <tr>	<td><b>center:</b></td>								\
+			<td><input type=text name=xcen size=10 style="text-align:right;"></td>		\
+			<td><input type=text name=ycen size=10 style="text-align:right;"></td>    	\
+			<td>&nbsp(file coords of center of section)</td>						\
+		   </tr>										\
+	           <tr>	<td><b>size:</b></td>								\
+			<td><input type=text name=xdim size=10 style="text-align:right;"></td>		\
+			<td><input type=text name=ydim size=10 style="text-align:right;"></td>		\
+			<td>&nbsp(pixel width, height of section)</td>						\
+		   </tr>										\
+                   <tr>	<td><b>bin:</b></td>							\
 			<td><input type=text name=bin value=1 size=10 style="text-align:right;"></td>	\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
+			<td></td>									\
+			<td>&nbsp(bin factor applied to section)</td>						\
 		   </tr>										\
-	           <tr>	<td>Center</td>									\
-			<td><input type=text name=cx size=10 style="text-align:right;"></td>		\
-			<td><input type=text name=cy size=10 style="text-align:right;"></td>    	\
-			<td>&nbsp;</td>									\
+	           <tr>	<td><b>filter:</b></td>								\
+			<td colspan="2"><input type=text name=filter size="22" style="text-align:left;"></td>	\
+			<td>&nbsp(event/row filter for tables)</td>						\
 		   </tr>										\
-	           <tr>	<td>Image&nbsp;Size</td>								\
-			<td><input type=text name=nx size=10 style="text-align:right;"></td>		\
-			<td><input type=text name=ny size=10 style="text-align:right;"></td>		\
-			<td>&nbsp;</td>									\
-		   </tr>										\
-	           <tr>	<td>Filter</td>									\
-			<td colspan="2"><input type=text name=filter size="24" style="text-align:left;"></td>	\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
-		   </tr>										\
-	           <tr>	<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
-			<td>&nbsp;</td>									\
+	           <tr>	<td><b>separate:</b></td>			\
+                        <td><input type=checkbox name=separate class="sep-image" style="text-align:left;"></td>	\
+			<td></td>									\
+			<td>&nbsp(display as a separate image?)</td>						\
 		   </tr>										\
 		   <tr>											\
-		       	<td><input type=button name=rebin value="Rebin" class="rebin-image"></td>	\
+			<td><input type=button name=rebin value="Run" class="rebin-image"></td>         \
 			<td>&nbsp;</td>									\
 			<td>&nbsp;</td>									\
-		       	<td><input type=button name=close value="Close" class="close-image" ' + disclose + '></td>	\
+                        <td>&nbsp;<input type=button name=close value="Close" class="close-image" ' + disclose + '></td> \
 		   </tr>										\
 	    </table>											\
 	    </form>');
+	/*eslint-enable no-multi-str */
 
-// 	click doesn't work on localhost on a Mac using Chrome/Safari, but mouseup does!
-//	$(div).find(".rebin-image").on("click", function () { reBinImage(div, display); });
-//	$(div).find(".close-image").on("click", function () { if( win ){ win.close(); } });
+	// click doesn't work on localhost on a Mac using Chrome/Safari, but mouseup does ...
 	$(div).find(".rebin-image").on("mouseup", function () { reBinImage(div, display); });
 	$(div).find(".close-image").on("mouseup", function () { if( win ){ win.close(); } });
+	$(div).find(".sep-image").change(function() { that.sep = $(this).prop("checked"); });
 
+	// set separate button
+	$(div).find(".sep-image").prop("checked", !!that.sep);
+
+	// get current params
 	if ( im ) {
 	    getBinParams(div, display);
 	}
     }
 
-    JS9.RegisterPlugin("Fits", "Binning", binningInit, {
+    JS9.RegisterPlugin("FITS", "Binning", binningInit, {
 	    menu: "view",
 
-            winTitle: "FITS Binary Table Binning",
+            winTitle: "Image Sections, with Binning and Filtering",
 	    winResize: true,
 
-            menuItem: "Binning",
+            menuItem: "Bin/Filter/Section",
 
-	    onimageload:    binningInit,
-	    onimagedisplay: binningInit,
+	    onplugindisplay:  binningInit,
+	    onimageload:      binningInit,
+	    onimagedisplay:   binningInit,
 
 	    help:     "fitsy/binning.html",
 
-            winDims: [400, 180],
+            winDims: [480, 240]
     });
 }());

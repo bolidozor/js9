@@ -48,7 +48,7 @@ Version  Developer        Date     Change
 
 #define MAXSTR  256
 #define MAXFILE 256
-#define HDRLEN  80000
+#define HDRLEN  800000
 
 #define NORMAL_TEMPLATE  0
 #define ALTERNATE_INPUT  1
@@ -140,6 +140,7 @@ struct
 
 
 double crpix1, crpix2;
+double ltv1, ltv2;
 
 double pixelArea;
 
@@ -256,6 +257,35 @@ int mProjectPP(int argc, char **argv)
    /* Make a NaN value to use setting blank pixels */
    /************************************************/
 
+#if EM
+
+   // from funtools swap.c nd NaN.c
+   union
+   {
+     long l;
+     char c[sizeof (long)];
+   } u;
+   unsigned char nanc[8];
+   double nan;
+
+   for(i=0; i<8; i++){
+     nanc[i] = 1;
+   }
+   // check for endian-ness
+   u.l = 1;
+   if( u.c[sizeof (long) - 1] == 1 ){
+     // big-endian
+     nanc[0] = 0x7F;
+     nanc[1] = 0xF0;
+   }
+   else{
+     // little-endian
+     nanc[7] = 0x7F;
+     nanc[6] = 0xF0;
+   }
+   nan = (*((double *)nanc));
+
+#else
    union
    {
       double d;
@@ -266,10 +296,11 @@ int mProjectPP(int argc, char **argv)
    double nan;
 
    for(i=0; i<8; ++i)
-      value.c[i] = 255;
+      value.c[i] = (char)255;
 
    nan = value.d;
 
+#endif
 
    /***************************************/
    /* Process the command-line parameters */
@@ -305,9 +336,9 @@ int mProjectPP(int argc, char **argv)
 
             if(end < optarg + strlen(optarg))
             {
-               printf("[struct stat=\"ERROR\", msg=\"Drizzle factor string (%s) cannot be interpreted as a real number\"]\n", 
+               fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Drizzle factor string (%s) cannot be interpreted as a real number\"]\n", 
                   optarg);
-               exit(1);
+               fflush(fstatus); fclose(fstatus); exit(1);
             }
 
             break;
@@ -319,9 +350,9 @@ int mProjectPP(int argc, char **argv)
          case 's':
             if((fstatus = fopen(optarg, "w+")) == (FILE *)NULL)
             {
-               printf("[struct stat=\"ERROR\", msg=\"Cannot open status file: %s\"]\n",
+               fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Cannot open status file: %s\"]\n",
                   optarg);
-               exit(1);
+               fflush(fstatus); fclose(fstatus); exit(1);
             }
             break;
 
@@ -343,9 +374,9 @@ int mProjectPP(int argc, char **argv)
 
             if(end < optarg + strlen(optarg))
             {
-               printf("[struct stat=\"ERROR\", msg=\"Fixed weight value (%s) cannot be interpreted as a real number\"]\n", 
+               fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Fixed weight value (%s) cannot be interpreted as a real number\"]\n", 
                   optarg);
-               exit(1);
+               fflush(fstatus); fclose(fstatus); exit(1);
             }
 
             weight_value = fixedWeight;
@@ -357,9 +388,9 @@ int mProjectPP(int argc, char **argv)
 
             if(end < optarg + strlen(optarg))
             {
-               printf("[struct stat=\"ERROR\", msg=\"Weight threshold string (%s) cannot be interpreted as a real number\"]\n",
+               fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Weight threshold string (%s) cannot be interpreted as a real number\"]\n",
                   optarg);
-               exit(1);
+               fflush(fstatus); fclose(fstatus); exit(1);
             }
 
             break;
@@ -369,9 +400,9 @@ int mProjectPP(int argc, char **argv)
 
             if(end < optarg + strlen(optarg))
             {
-               printf("[struct stat=\"ERROR\", msg=\"Flux scale string (%s) cannot be interpreted as a real number\"]\n",
+               fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Flux scale string (%s) cannot be interpreted as a real number\"]\n",
                   optarg);
-               exit(1);
+               fflush(fstatus); fclose(fstatus); exit(1);
             }
 
             break;
@@ -387,9 +418,9 @@ int mProjectPP(int argc, char **argv)
             {
                if(BorderSetup(optarg) <= 3)
                {
-                  printf("[struct stat=\"ERROR\", msg=\"Border value string (%s) cannot be interpreted as an integer or a set of polygon vertices\"]\n", 
+                  fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Border value string (%s) cannot be interpreted as an integer or a set of polygon vertices\"]\n", 
                      optarg);
-                  exit(1);
+                  fflush(fstatus); fclose(fstatus); exit(1);
                }
                else
                {
@@ -400,9 +431,9 @@ int mProjectPP(int argc, char **argv)
 
             if(border < 0)
             {
-               printf("[struct stat=\"ERROR\", msg=\"Border value (%d) must be greater than or equal to zero\"]\n", 
+               fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Border value (%d) must be greater than or equal to zero\"]\n", 
                   border);
-               exit(1);
+               fflush(fstatus); fclose(fstatus); exit(1);
             }
 
             break;
@@ -412,23 +443,23 @@ int mProjectPP(int argc, char **argv)
 
             if(end < optarg + strlen(optarg) || hdu < 0)
             {
-               printf("[struct stat=\"ERROR\", msg=\"HDU value (%s) must be a non-negative integer\"]\n", 
+               fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"HDU value (%s) must be a non-negative integer\"]\n", 
                   optarg);
-               exit(1);
+               fflush(fstatus); fclose(fstatus); exit(1);
             }
             break;
 
          default:
-            printf("[struct stat=\"ERROR\", msg=\"Usage: %s [-z factor][-d level][-b border][-s statusfile][-o altout.hdr][-i altin.hdr][-h hdu][-x scale][-w weightfile][-t threshold][-X(expand)] in.fits out.fits template.hdr\"]\n", argv[0]);
-            exit(1);
+            fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Usage: %s [-z factor][-d level][-b border][-s statusfile][-o altout.hdr][-i altin.hdr][-h hdu][-x scale][-w weightfile][-t threshold][-X(expand)] in.fits out.fits template.hdr\"]\n", argv[0]);
+            fflush(fstatus); fclose(fstatus); exit(1);
             break;
       }
    }
 
    if (argc - optind < 3) 
    {
-      printf("[struct stat=\"ERROR\", msg=\"Usage: %s [-z factor][-d level][-b border][-s statusfile][-o altout.hdr][-i altin.hdr][-h hdu][-x scale][-w weightfile][-t threshold][-X(expand)] in.fits out.fits template.hdr\"]\n", argv[0]);
-      exit(1);
+      fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Usage: %s [-z factor][-d level][-b border][-s statusfile][-o altout.hdr][-i altin.hdr][-h hdu][-x scale][-w weightfile][-t threshold][-X(expand)] in.fits out.fits template.hdr\"]\n", argv[0]);
+      fflush(fstatus); fclose(fstatus); exit(1);
    }
 
    strcpy(input_file,    argv[optind]);
@@ -595,7 +626,7 @@ int mProjectPP(int argc, char **argv)
    if(status)
    {
       fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Could not set up plane-to-plane transform.  Check for compliant headers.\"]\n");
-      exit(1);
+      fflush(fstatus); fclose(fstatus); exit(1);
    }
 
    if(debug >= 2)
@@ -823,7 +854,7 @@ int mProjectPP(int argc, char **argv)
    if(oxpixMin > oxpixMax || oypixMin > oypixMax)
    {
       fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"No overlap\"]\n");
-      exit(1);
+      fflush(fstatus); fclose(fstatus); exit(1);
    }
     
 
@@ -836,7 +867,7 @@ int mProjectPP(int argc, char **argv)
    if(data == (void *)NULL)
    {
       fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Not enough memory for output data image array\"]\n");
-      exit(1);
+      fflush(fstatus); fclose(fstatus); exit(1);
    }
 
    for(j=0; j<jlength; j++)
@@ -846,13 +877,13 @@ int mProjectPP(int argc, char **argv)
       if(data[j] == (void *)NULL)
       {
          fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Not enough memory for output data image array\"]\n");
-         exit(1);
+         fflush(fstatus); fclose(fstatus); exit(1);
       }
    }
 
    if(debug >= 1)
    {
-      printf("\n%lu bytes allocated for image pixels\n", 
+      printf("\n%u bytes allocated for image pixels\n",
          ilength * jlength * sizeof(double));
       fflush(stdout);
    }
@@ -880,7 +911,7 @@ int mProjectPP(int argc, char **argv)
    if(area == (void *)NULL)
    {
       fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Not enough memory for output area image array\"]\n");
-      exit(1);
+      fflush(fstatus); fclose(fstatus); exit(1);
    }
 
    for(j=0; j<jlength; j++)
@@ -890,7 +921,7 @@ int mProjectPP(int argc, char **argv)
       if(area[j] == (void *)NULL)
       {
          fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Not enough memory for output area image array\"]\n");
-         exit(1);
+         fflush(fstatus); fclose(fstatus); exit(1);
       }
       for(i=0; i<ilength; ++i)
       {
@@ -900,7 +931,7 @@ int mProjectPP(int argc, char **argv)
 
    if(debug >= 1)
    {
-      printf("%lu bytes allocated for pixel areas\n", 
+      printf("%u bytes allocated for pixel areas\n",
          ilength * jlength * sizeof(double));
       fflush(stdout);
    }
@@ -1500,6 +1531,15 @@ int mProjectPP(int argc, char **argv)
       printFitsError(status);           
 
 
+   if(fits_update_key_dbl(output.fptr, "LTV1", ltv1-imin, -14,
+                                  (char *)NULL, &status))
+      printFitsError(status);           
+
+   if(fits_update_key_dbl(output.fptr, "LTV2", ltv2-jmin, -14,
+                                  (char *)NULL, &status))
+      printFitsError(status);           
+
+
 
    if(fits_update_key_lng(output_area.fptr, "NAXIS", 2,
                                   (char *)NULL, &status))
@@ -1518,6 +1558,14 @@ int mProjectPP(int argc, char **argv)
       printFitsError(status);           
 
    if(fits_update_key_dbl(output_area.fptr, "CRPIX2", crpix2-jmin, -14,
+                                  (char *)NULL, &status))
+      printFitsError(status);           
+
+   if(fits_update_key_dbl(output_area.fptr, "LTV1", ltv1-imin, -14,
+                                  (char *)NULL, &status))
+      printFitsError(status);           
+
+   if(fits_update_key_dbl(output_area.fptr, "LTV2", ltv2-jmin, -14,
                                   (char *)NULL, &status))
       printFitsError(status);           
 
@@ -1608,7 +1656,7 @@ int mProjectPP(int argc, char **argv)
       (double)(currtime - start));
    fflush(stdout);
 
-   fflush(fstatus);return 0;
+   fflush(fstatus); fclose(fstatus); exit(0);
 }
 
 
@@ -1656,7 +1704,7 @@ int readTemplate(char *filename, int headerType)
 
    strcpy(headerStr, "");
 
-   for(j=0; j<1000; ++j)
+   for(j=0; j<10000; ++j)
    {
       if(fgets(line, MAXSTR, fp) == (char *)NULL)
          break;
@@ -1698,7 +1746,7 @@ int readTemplate(char *filename, int headerType)
       if(input.wcs == (struct WorldCoor *)NULL)
       {
          fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Output wcsinit() failed.\"]\n");
-         exit(1);
+         fflush(fstatus); fclose(fstatus); exit(1);
       }
 
 
@@ -1795,7 +1843,7 @@ int readTemplate(char *filename, int headerType)
       if(output.wcs == (struct WorldCoor *)NULL)
       {
          fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Output wcsinit() failed.\"]\n");
-         exit(1);
+         fflush(fstatus); fclose(fstatus); exit(1);
       }
 
       output_area.wcs = output.wcs;
@@ -1963,6 +2011,21 @@ int parseLine(char *linein, int headerType)
 
          sprintf(linein, "CRPIX2  = %11.6f", crpix2);
       }
+
+      if(strcmp(keyword, "LTV1") == 0)
+      {
+         ltv1 = atof(value) + offset;
+
+         sprintf(linein, "LTV1  = %11.6f", ltv1);
+      }
+
+      if(strcmp(keyword, "LTV2") == 0)
+      {
+         ltv2 = atof(value) + offset;
+
+         sprintf(linein, "LTV2  = %11.6f", ltv2);
+      }
+
    }
 
    return 0;
@@ -2045,7 +2108,7 @@ int readFits(char *filename, char *weightfile)
    if(input.wcs == (struct WorldCoor *)NULL)
    {
       fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"Input wcsinit() failed.\"]\n");
-      exit(1);
+      fflush(fstatus); fclose(fstatus); exit(1);
    }
 
    input.wcs->nxpix += 2 * offset;
@@ -2154,7 +2217,7 @@ void printFitsError(int status)
 
    fprintf(fstatus, "[struct stat=\"ERROR\", status=%d, msg=\"%s\"]\n", status, status_str);
 
-   exit(1);
+   fflush(fstatus); fclose(fstatus); exit(1);
 }
 
 
@@ -2168,7 +2231,7 @@ void printFitsError(int status)
 void printError(char *msg)
 {
    fprintf(fstatus, "[struct stat=\"ERROR\", msg=\"%s\"]\n", msg);
-   exit(1);
+   fflush(fstatus); fclose(fstatus); exit(1);
 }
 
 

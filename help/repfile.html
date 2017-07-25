@@ -15,116 +15,217 @@
 
 <center><h3>Dealing with Large Files</h3></center>
 <p>
-Archives, and especially X-ray archives, present special problems for
-displaying data in a Web browser. Instead of images, X-ray data
-consists of detected photons stored in FITS binary tables. This means
-that the file size is related to the number of detected photons, not
-the image dimensions. Indeed, X-ray data files can be hundreds of
-megabytes in size.  Downloading (and then binning) these tables can be
-painfully slow, especially if the aim simply is to offer a quick look
-at the data.
-
-<p>
-Of course, FITS image files also present a problem if they are large.
-A 2048 x 2048 32-bit FITS image has a file size of more than 16Mb,
-which can take 30 seconds or more to download on a DSL line. A 12000 x
-12000 Hubble Deep field gzip'ed FITS image can have a file size of
-more than 300Mb. Thus, we need alternatives to simply downloading
-large files for display.
-
-<p>
-One possibility for dealing with large files is to download a smaller
-<b>representation file</b>. For some purposes, a small representation
-file can be used to identify spatial regions of interest, which then
-can be extracted at full resolution.  In other cases, viewing a small
-image representation can be sufficient, especially if you still have
-the ability to perform analysis on the original file.
-
-<p>
-At present, JS9 supports two different ways of dealing with large
-files through the use of smaller representation files:
+Large astronomical <a href="http://fits.gsfc.nasa.gov">FITS</a>
+data files present a challenge for browser-based image display, in two ways:
 <ul>
-<li> you can associate a <b>parent</b> with a representation file and
-allow full resolution section to be extracted from the parent.
-<li> for X-ray data, you can generate <b>PNG representation files</b> that
-are automatically linked to the original file
+<li> downloading large files can take a long time, even on the fastest connections
+<li> unlike desktop programs which enjoy quasi-unlimited memory via the
+<a href="http://man7.org/linux/man-pages/man2/mmap.2.html">mmap()</a>
+system call, browsers enforce hard (usually per-tab) memory limits.
 </ul>
-These two schemes are described below.
-
-
-<center><h3>Parent Files and Spatial Region Extraction</h3></center>
+The nightmare scenario is to run out of browser memory after taking a
+long time to download the file!
 
 <p>
-NB: use this service with care. It allows users to consume disk resources!
-<p>
-Consider the 12000 x 12000 300Mb Hubble Deep Field image mentioned
-above. This file could take several minutes to download. Even if
-stored locally, it requires more than 500Mb of memory to display,
-which is close to the memory limit of some browsers. But you can bin this
-file by a factor of 24 into a gzip'ed 512 x 512 FITS image with a file
-size of approximately 500Kb.  This <b>representation file</b> would
-download quickly and give a good overview of the entire data set. If
-you then could extract a spatial region of interest from the original
-file at full resolution, you would, in essence, be panning around the
-original image without the transmission and memory overhead associated
-with processing the whole file.
+One possibility for dealing with large files is to download a small
+<b>representation file</b> for display and quick-look analysis, while
+supporting detailed analysis and image extraction on the original
+<b>parent file</b>. In JS9, you can:
+<ul>
+<li> install the
+<a href="helper.html" target="_blank">Server-side Helper</a>
+and set the <b>JS9.globalOpts.fits2fits</b>,
+<b>JS9.globalOpts.image</b>, and <b>JS9.globalOpts.table</b>,
+parameters to control how/when small FITS representation files are
+automatically generated.
+<li> load a small FITS file (presumably created off-line) and
+manually associate a large parent file with it by passing
+the <b>parentFile</b> property on the <b>opts</b> object.
+<li><del><b>Deprecated:</b> for X-ray data, generate <b>PNG representation files</b> linked to the original file.</del>
+</ul>
+These schemes are described below.
+
+<center><h3>Automatic Generation of a FITS Representation File</h3></center>
 
 <p>
-JS9 supports this sort of <b>representation file</b> display and image
-extraction. To utilize it at your site, you must configure a
-<a href="helper.html" target="_blank">Server-side (Back-end)
-Helper</a> (using Node.js or CGI), and set up 
-<a href="serverside.html" target="_blank">Server-side Analysis</a>
-to perform the JS9-supplied <b>imsection</b> task.
+Consider a 12000 x 12000 Hubble Deep Field image. Even using gzip
+compression, this 300Mb file could take several minutes to download
+and would require more than 500Mb of memory to display.  But you can
+bin this file by a factor of 24 into a gzip'ed 512 x 512 FITS image
+with file size of approximately 500Kb.  This FITS
+<b>representation file</b> would download quickly and give a good
+overview of the entire data set. You can perform quick-look analysis
+on this file using JS9 plugins. But if you also could re-extract a
+section from the original file at a higher resolution, you would, in
+essence, be panning around the original image without the transmission
+and memory overhead associated with processing the whole file.
 
 <p>
-In addition, the Server-side helper must support temporary user work
-directories in which to store the section files. This is accomplished
-by setting the <b>globalOpts.workDir</b> property in js9Prefs.json to
-a directory which will contain the work directories.  You might want
-to set the <b>globalOpts.workDirQuota</b> property (default value of
-50Mb) to limit the amount of space that can be utilized by each
-user. (But note that the <b>workDirQuota</b> is not a hard quota:
-imsection only checks whether the quota has been exceeded before
-extracting the next section. This means that users can extract one
-section that will bring the total size above the quota. Thus, if the
-quota is 10Mb and the work directory is empty, imsection will extract
-a 50Mb file. But it will not extract more files until already-loaded
-files have been closed in JS9 to bring the total under the quota.)
-
-<p>
-Assuming the back-end server is set up, you then can load a
-<b>representation file</b> using JS9.Load(), but with the addition of
-a <b>parentFile</b> property in the options object.  The value
-of <b>parentFile</b> will be the relative path of the original file:
+JS9 supports FITS <b>representation file</b> generation and display,
+as well as extraction of binned image sections from the original parent
+file, using the <b>fits2fits</b> scheme. To utilize it at your site,
+first configure a Node.js-based
+<a href="helper.html" target="_blank">Server-side Helper</a> using the
+standard GNU configure/make setup:
 <pre>
-    JS9.Load("fits/f814w_bin24.fits.gz", {colormap:"cool", parentFile: "fits/f814w.fits.gz"})
+  # where to find cfitsio and install binaries, what sort of helper to build
+  ./configure  --with-cfitsio=/usr/local --prefix=$HOME --with-helper=nodejs
+  make
+  make install
 </pre>
-When a <b>parentFile</b> is specified, the File menu will activate the
-<b>extract image section ...</b> menu option. From its dialog box, you 
-will be able to set the image coordinates and size of the section to extract.
-Alternatively, you can choose to have these values automatically updated
-from a box region that you create, move, and resize.
-<p>
-You can also choose to extract the specified section in native format
-(i.e. as a binary table if the parent file is a binary table, etc.) or
-as an image (even if the parent is a binary table).
-<p>
-When the <b>Extract</b> button is pressed, the position and size
-parameters are used to extract a new FITS file from the parent
-file. This file is stored in the temporary work directory and
-displayed in JS9. Analysis can then be performed on this section
-file. When the File <b>close image</b> menu option is chosen, the section
-file will be deleted.
 
 <p>
-Extracting sections works especially well with large FITS images. It
-also can be used for binary tables. However, since the size of a
-binary table depends on the number of events, an extracted section can
-still be very large if it contains a bright source.
+Once the js9Helper is running, configure <b>fits2fits</b> by
+setting the following global parameters in your js9Prefs.json file:
+<ul>
+<li><b>globalOpts.workDir</b>: where to store temporary representation files
+<li><b>globalOpts.workDirQuota</b>: optional user quota on work directory
+<li><b>globalOpts.fits2fits</b>: when/how to generate FITS representation files
+<li><b>globalOpts.image</b>: image section parameters
+<li><b>globalOpts.table</b>: table section parameters
+</ul>
+The server-side helper must support temporary user work directories in
+which to store the FITS representation files. This is accomplished by
+setting the <b>globalOpts.workDir</b> property in js9Prefs.json to a
+top-level directory which will contain the individual work
+sub-directories for each JS9 connection.  The workDir path should
+either be an absolute path, or one that is relative to the JS9 helper
+directory.
 
-<center><h3>The PNG Representation File</h3></center>
+<p>
+Optionally, you probably will want to set the
+<b>globalOpts.workDirQuota</b> property (current default value of
+50Mb) to limit the amount of space that can be utilized by each
+user. Note that the <b>workDirQuota</b> is not a hard quota: the
+js9helper only checks whether the quota has been exceeded before
+extracting the next section. This means that users can always extract
+one section that will bring the total size above the quota. Thus, if
+the quota is 10Mb and the work directory is empty, imsection will
+extract a 50Mb file. But it will not extract any more files until
+already-loaded files have been closed in order to bring the total
+under the quota.
 
+The <b>globalOpts.fits2fits</b> property controls whether a FITS
+representation file is automatically generated. It accepts the following values:
+<ul>
+<li><b>always</b>: always generate a FITS representation file
+<li><b>true</b>: boolean value is same as "always"
+<li><b>never</b>: never generate a FITS representation file
+<li><b>false</b>: boolean value is same as "never"
+<li><b>size>N</b>: generate a representation file is this file's size is greater than N Mb
+</ul>
+Of course, this property is only checked if JS9 is connected to a server-side
+helper which has a working directory configured, as described above.
+
+<p>
+The current default for <b>fits2fits</b> is "size>100", which means that
+representation files will be generated if the original FITS file has a size
+greater than 100 Mb.
+
+The <b>globalOpts.image</b> and <b>globalOpts.table</b> objects specify the
+image dimensions and bin factor used to generate the FITS representation file:
+<ul>
+<li><b>xdim</b>: x image dimension
+<li><b>ydim</b>: y image dimension
+<li><b>bin</b>: bin factor
+</ul>
+Binning is applied after the image section is extracted or the table
+is binned into an image. Thus, dimensions of 4096 x 4096 and bin 4 will
+produce a 1024 x 1024 image.
+
+<p>
+When <b>fit2fits</b> is set up in this way, JS9 will ask the helper to
+check the file size when loading a FITS URL. If the check returns
+false, the original FITS file will be loaded internally into JS9. If
+true, the JS9 helper will extract a representation image (i.e, an
+image section) from the parent file, store it in the temporary work
+directory, and then tell JS9 to display the representation file.
+
+<p>
+The smaller in-memory representation file will be used when performing
+browser-based analysis such as WCS reprojection, 3D plots, and
+imexam. But the representation file knows its parent, and will send
+the parent filename to run server-side analysis tasks. Thus JS9
+performs quick-look analysis on the smaller file and more detailed
+server-side analysis on the original parent file.
+
+<p>
+In this context, perhaps the most important server-side task is
+the <b>Bin/Filter/Section</b> plugin available in the <b>View</b>
+menu. This plugin allows you to extract sections from FITS binary
+tables and images, with options to choose the image center, image
+dimensions, and bin factor.  For tables, the plugin also allows you to
+filter rows of the table by means of arithmetic and boolean operations
+on the table columns.
+
+<p>
+The <b>Bin/Filter/Section</b> plugin works with both FITS
+representation files and with in-memory FITS files. If the displayed
+FITS file is a representation file (i.e., it has a parent file, a JS9
+helper is connected, etc.), the plugin will ask the JS9 helper to
+extract the new image section from the parent.  Otherwise, it extracts
+the section from the in-memory FITS file. This behavior is meant to be
+transparent to the user. See the
+<a href="./plugins/fitsy/binning.html">Bin/Filter/Section plugin</a> for
+more information.
+
+<p>
+NB: Unfortunately, the <b>fits2fits</b> scheme is not available with
+FITS files that are drag/dropped onto JS9 or files that are opened
+through the file menu dialog box. Both of these methods call for the
+browser to load the whole file directly and pass it to JS9 for display.
+There is some discussion within the browser development community of
+supporting on-the-fly processing, but nothing definite is planned.
+
+<center><h3>Manual Specification of a FITS Parent File</h3></center>
+
+<p>
+Assuming the JS9 helper is set up, but <b>fits2fits</b> is set to
+"never", you can load a small FITS file using JS9.Load() and manually
+specify a <b>parentFile</b> property in the options object:
+<pre>
+    JS9.Load("js9/fits/f814w_bin24.fits.gz", {colormap:"cool", parentFile: "fits/f814w.fits.gz"})
+</pre>
+One important note: the pathname of the URL to load is (as usual)
+relative to the web page, while the pathname of the parentFile must be
+relative to the JS9 install directory (i.e., where the JS9 helper was
+started). In the above example, the web page is one level up from the
+JS9 install directory.  Once the parentFile has been specified, the
+in-memory file should act as a representation file.
+
+<p>
+Of course, the two files need to be tied to one another spatially. For
+server-side data analysis, having agreement between WCS parameters is
+sufficient. In order to use the <b>Bin/Filter/Section</b> plugin,
+however, the representation file also must be connected to the parent
+file using IRAF LTM/LTV keywords, so that the physical coordinates of
+the representation file point to the file coordinates of the parent.
+The js9helper program will generate a FITS image section with
+the correct keywords. The syntax is:
+<pre>
+    js9helper -i parentFile imsection repFile section filter
+</pre>
+where section can be:
+<ul>
+<li>x1:x2,y1:y2[,bin]          # specify lo and hi values of the image section
+<li>xdim@xcen,ydim@ycen[,bin]  # specify center and image dimensions
+<li>xdim@0,ydim@0[,bin]        # image dimensions taken around center
+</ul>
+and <b>filter</b> specifies a column filter for binary tables. For example:
+<pre>
+    js9helper -i f814w.fits.gz imsection f814_bin24.fits "12000@0,12000@0,24"
+</pre>
+was used to generate the binned representation image in the <b>JS9 Large</b>
+demo.
+
+<center><h3>Automatic Generation of the PNG Representation File</h3></center>
+
+<b>
+NB: The use of PNG representation files has been deprecated in favor of
+FITS representation files described above.
+</b>
+
+<del>
 <p>
 Generating a <b>representation file</b> from an X-ray binary table for
 download is one solution to the large file problem.  It does require
@@ -147,8 +248,8 @@ standard, optimized browser support.
 off-screen (non-visible) canvas. This is the packed representation of the FITS file.
 <li> The FITS header is extracted into a JavaScript object, and actual image dimensions and datatype are determined.
 <li> The original image data is unpacked into an HTML5 typed array of the specified data type, with endian conversion applied as necessary.
-<li> The standard DS9 algorithm is applied to this array to convert pixel 
-values to an array of RGB values. 
+<li> The standard DS9 algorithm is applied to this array to convert pixel
+values to an array of RGB values.
 <li> The converted RGB array is sent to the screen using  <b>putImageData()</b>
 and displayed by the browser.
 </ul>
@@ -160,7 +261,7 @@ binary table. This means that the contrast/bias conversion can be
 performed, image positions/values displayed, etc. using standard
 browser capabilities and relatively straight-forward array
 manipulation code.  Browser-based image plugins can process the image
-data, and JS9 can communicate with a back-end server to provide more
+data, and JS9 can communicate with a server to provide more
 sophisticated FITS-based analysis support.
 
 <p>
@@ -172,7 +273,7 @@ ordinary PNG files and will correctly load either type.
 The PNG
 <b>representation file</b> contains the following information:
 <ul>
-<li><b>fitsfile:</b> the pathname of the FITS file used to generate this PNG 
+<li><b>fitsfile:</b> the pathname of the FITS file used to generate this PNG
 file, including the FITS bracket extension (if present)
 <li><b>fitsheader:</b> a FITS header containing the WCS information
 for the generated image
@@ -212,16 +313,14 @@ or
 </pre>
 
 <p>
-The tpos program can be linked against either the funtools library or
-the cfitsio library, depending on how you configured your JS9 build.
-Linking against funtools allows you to use funtools bracket syntax to
-specify blocking, sections, and filters. With cfitsio, these options 
-are specified using switches on the command line.
+The tpos program can be linked against either the cfitsio library or
+the funtools library, depending on how you configured your JS9 build.
+(Note that funtools is deprecated. Please use cfitsio where possible.)
 
 <p>
 The fits2png switches are meant to provide flexibility when running
 tpos in batch mode. The fits2png script also is used to generate PNG
-files on the fly (i.e., when offering FITS files on your Web page
+files on the fly (i.e., when offering FITS files on your web page
 directly instead of the PNG representation.) Note that if you have
 linked against cfitsio, you must ensure that the HEASOFT environment
 is set up properly when running fits2png.
@@ -235,12 +334,12 @@ table to a PNG representation file having the same image dimensions:
 However, current browsers have a working limit to the image size they
 can reasonably handle: 1024x1024 is recommended, although 2048x2048
 works as well; anything larger can be subject to performance
-degradation. For maximum flexibility, you can use funtools section syntax
+degradation. For maximum flexibility, you can use section syntax
 to limit the size of the generated PNG file. For example:
 <pre>
-    tpos 'casa.fits[1024@4027,1024@3944,2]' casa.png         # funtools
-or:
     tpos -s "1024@4027,1024@3944" -b 2 casa.fits casa.png    # cfitsio
+or:
+    tpos 'casa.fits[1024@4027,1024@3944,2]' casa.png         # funtools
 </pre>
 Here, the PNG file is generated by extracting a 1024x1024 image
 centered on a specific point (4027,3944) and then blocking it by a
@@ -303,13 +402,13 @@ facilitate session-based directory specification, a standard HTML cookie
 is used to pass the session information between client and server as follows:
 <ul>
 <li> When a JS9-enabled page is loaded, a cookie is set containing the
-session id in the Web page. For example, one might a set a cookie
+session id in the web page. For example, one might a set a cookie
 whose name is <b>JS9_ID</b> and whose values is <b>0x1234</b>.
 <li> The odir switch is given a directory value containing the cookie
 name as part of the string, preceded by a percent sign, <b>%</b>. For
 example, odir might be set to <b>./png/%JS9_ID</b>.
 <li> When fits2png is executed, the <b>%cookie</b> name is replaced by the
-cookie value. In the example above, the resulting odir value is 
+cookie value. In the example above, the resulting odir value is
 <b>./png/0x1234</b>.
 <li> The PNG representation file is stored in this odir directory, as usual.
 </ul>
@@ -328,9 +427,9 @@ part of the system.
 <p>
 Regardless of where the PNG files are stored, <b>you must adhere to
 the W3C "same-origin" security policy, i.e. the PNG data files must be
-hosted on the same Web server as the JS9 code</b>. This means that your PNG
-files must either be stored in the Web site directory tree, or you
-must make a link within the Web site tree to the top level PNG directory.
+hosted on the same web server as the JS9 code</b>. This means that your PNG
+files must either be stored in the web site directory tree, or you
+must make a link within the web site tree to the top level PNG directory.
 Also note that Google Chrome's implementation of this policy prevents
 you from using JS9 with a
 <b>file://</b> URL. (On Linux and Macs, you can start Chrome with the
@@ -339,7 +438,7 @@ you from using JS9 with a
 <h3>Loading a PNG File From Your Web Page</h3>
 <p>
 Once you have generated your PNG files, you can make them available on your
-JS9 Web page by creating URLs that call the <b>JS9.Load()</b> routine:
+JS9 web page by creating URLs that call the <b>JS9.Load()</b> routine:
 <pre>
     href='javascript:JS9.Load(filename, opts);'
 </pre>
@@ -384,8 +483,9 @@ PNG image. It will not replace an existing PNG file, if it
 exists. Note that the output directory is set explicitly to be the png
 subdirectory of the sample installation. You can change this command
 to suite your site needs.
+</del>
 
-<h5>Last updated: November 5, 2015</h5>
+<h5>Last updated: July 10, 2017</h5>
 </div>
 
 </body>

@@ -16,7 +16,7 @@
 <center><h3>Adding Server-side Analysis Tasks to JS9</h3></center>
 
 <p>
-A JS9 Web site can define analysis tools that will be loaded into the
+A JS9 web site can define analysis tools that will be loaded into the
 user's JS9 <b>Analysis</b> menu. These analysis tasks are then
 executed by the back-end (CGI or node.js) server using the original
 FITS data, with results sent back to the browser for display.
@@ -48,15 +48,37 @@ tool are:
 <ul>
 <li><b>name:</b> a short identifier string (typically one word)
 <li><b>title:</b> a longer string that will be displayed in the Analysis menu
-<li><b>files:</b> a rule that a filename will be matched against to determine
-whether this task is available for the current image (not yet implemented)
-<li><b>purl:</b> a URL pointing to a Web page containing a user parameter form
+<li><b>files:</b> a rule that will be matched against to determine
+whether this task is available for the current image
+<li><b>purl:</b> a URL pointing to a web page containing a user parameter form
 <li><b>action:</b> The command to execute on the server side
 <li><b>rtype:</b> a return type, which can be <b>text</b> or <b>plot</b>
 <li><b>hidden:</b> if true, the analysis task is not shown in the Analysis menu
 </ul>
 See the sample json files in the analysis-plugins directory for the
 JSON syntax of this file.
+
+<p>
+The <b>files</b> property is a rule that determines whether an analysis task
+is available for a particular file. The following rules are defined:
+<ul>
+<li><b>fits</b>: true if the displayed image has an associated FITS file
+<li><b>png</b>: true if the displayed image is a png representation file
+<li><b>table</b>: true if the displayed image is a binary table
+<li><b>image</b>: true if the displayed image is an image
+<li><b>fitsHeader(pname,pvalue)</b>: true if the FITS header of the displayed image has the named parameter with the specified value
+<li><b>imVar(name,value)</b>: true if a property of the displayed image has the specified value
+<li><b>js9Var(name,value)</b>: true if the JS9 variable has the specified value
+<li><b>winVar(name,value)</b>: true if a variable in the window context has the specified value
+</ul>
+Examples:
+<ul>
+<li><b>fitsHeader(INSTRUME,HRC)</b>: true if the FITS instrument parameter is "HRC"
+<li><b>imVar(params.wcssys,FK5)</b>: true if the wcs system for the current image is FK5
+<li><b>js9Var(globalOpts.projectName,Chandra_EPO)</b>: true if the web page has set the JS9.globalOpts.projectName property to "Chandra_EPO"
+<li><b>winVar(MyProject.name,foo)</b>: true if MyProject has a property "name" with the value "foo"
+</ul>
+Note that all checks are case-insensitive.
 
 <p>
 The <b>action</b> string contains the command to execute. For security
@@ -101,12 +123,16 @@ the action is sent to the server for processing. Typically, these macros are
 used to specify filenames, regions, and (possibly) user parameters. The
 following intrinsic macros are defined:
 <ul>
+<li><b>$id:</b> id of the JS9 display
 <li><b>$image:</b> name of the image file being displayed
-<li><b>$filename:</b> pathname of the original FITS file
+<li><b>$filename:</b> pathname of the parent file, if available, or the original FITS file
+<li><b>$fits:</b> pathname of the original FITS file
+<li><b>$parent:</b> pathname of the parent file, if available
 <li><b>$regions:</b> all currently defined regions
 <li><b>$sregions:</b> all source regions
 <li><b>$bregions:</b> all background regions
-<li><b>$id:</b> id of the JS9 display
+<li><b>$imcenter:</b>center of displayed image in image coords (x,y)
+<li><b>$wcscenter:</b>center of displayed image in WCS coords (ra,dec)
 </ul>
 The three regions macros return region info in the current wcs
 system. To specify an alternate wcs system, append "physical",
@@ -121,7 +147,7 @@ file as well as source and background regions, use:
 <p>
 Many analysis tasks do not require the user to select additional parameter
 options and can can be executed immediately. Other command require
-user-selected options. These latter options should be put into a Web
+user-selected options. These latter options should be put into a web
 form, whose location is specified by the <b>purl</b> option. See
 the <b>params/histplot.html</b> file for an example.
 
@@ -133,7 +159,7 @@ prefixing them with a <b>$</b>.  For example, the histplot command is:
     js9Xeq histplot '$filename[$regions]' '$norm $bwidth' $column $bins
 </pre>
 Here, the <b>norm</b>, <b>bwidth</b>, <b>column</b>, and <b>bins</b>
-parameters are taken from the Web form for histplot. The <b>$filename</b>
+parameters are taken from the web form for histplot. The <b>$filename</b>
 and <b>$regions</b> macros are intrinsic to JS9.
 
 <p>
@@ -146,34 +172,42 @@ to the server for execution.  See <b>histplot.html</b> for sample syntax.
 The <b>rtype</b> property determine how JS9 handles return values:
 <ul>
 <li><b>text:</b> the returned text is displayed in a lightweight window
-<li><b>plot:</b> the returned plot data is plotted using the jQuery 
-<b>flot</b> widget (see http://www.flotcharts.org/)
+<li><b>plot:</b> the returned plot data is plotted
 </ul>
 Sample scripts such as <b>funcnts2flot</b> and <b>funhist2plot</b>
 generate a JSON string that contains a valid flot object. For
 example, the radial profile plot contains x, y, and error values:
 <pre>
 {
-  "color": "green", 
   "label" : "surf_bri(...) vs. avg_radius(...)", 
-  "points" : {"errorbars" : "y", 
-              "yerr" : {"show" : "true", "color" : "red"}},
+  "points" : {"errorbars" : "y", "yerr" : {"show" : "true", "color" : "red"}},
   "data": [[x1, y1, e1], [x2, y2, e2], ... [xn, xn, en]]
 }
 </pre>
 while the histogram plot contains only x and y values:
 <pre>
 {
-  "color": "blue", 
   "label" : "counts vs. ...bin", 
   "data": [[x1, y1], [x2, y2], ... [xn, xn]]
 }
 </pre>
 If your analysis task generates one of these two plot formats, JS9
-will display the plot data. Plotting is still somewhat experimental
-and rudimentary. We will be adding features with time (e.g. ability to
-change scales between linear and log). Please work with us to improve
-plotting support.
+will display the plot data. By default, the plot is generated using
+the jQuery <b>flot</b> library (see http://www.flotcharts.org/), which
+is supplied with JS9.
+
+<p>
+You also can use the <b>plotly</b> library for plotting. To do this,
+set the <b>JS9.globalOpts.plotLibrary</b> property to "plotly" and
+load the library in the web page header. (Due to its relatively large
+size, plotly is not packaged in the JS9 support file.)
+
+<p>
+Plotting is still somewhat experimental and rudimentary. For example,
+<b>flot</b> (but not <b>plotly)</b> simply uses the <b>x</b>
+and <b>y</b> keys to toggle between linear and log scaling.  We will
+be adding features and improvements with time. Please work with us to
+improve plotting support.
 
 <p>
 Finally, the <b>hidden</b> value determines whether or not a task is
@@ -189,15 +223,15 @@ task.
 <p>
 By default, server-side JS9 analysis tasks are executed using
 the <b>Analysis</b> menu, but they also can be executed directly from
-the Web page by means of HTML elements (buttons, forms, etc.) To do
-this, a Web page author simply creates the desired interface and calls
+the web page by means of HTML elements (buttons, forms, etc.) To do
+this, a web page author simply creates the desired interface and calls
 either <b>JS9.RunAnalysis()</b> (for buttons, menus, etc.)
 or <b>JS9.SubmitAnalysis()</b> (for forms). These are described
 below. See the js9analysis.html page for an example.
 
 <p>
 The <b>JS9.RunAnalysis()</b> routine is used to execute an analysis task and
-return the results for further processing within the Web page. The
+return the results for further processing within the web page. The
 <b>JS9.SubmitAnalysis()</b> routine works similarly, but it is used
 with a form: it automatically serializes the form values and passes
 them to the analysis macro expander so that these values can be put
@@ -253,19 +287,19 @@ directories), set the following property in the globalOpts object of
 the js9Prefs.json file:
 <ul>
 <li><b>workDir</b>: set to the relative path of a directory which
-will hold temporary working directories for each loaded Web page.
+will hold temporary working directories for each loaded web page (default: ./tmp)
 </ul>
 You also can set the following globalOpts configuration parameters in
 js9Prefs.json:
 <ul>
-<li><b>workDirQuota</b>: the disk quota on working directory (default: 50Mb)
-<li><b>rmWorkDir</b>: remove workdir when Web page disconnects? (default: true)
+<li><b>workDirQuota</b>: the disk quota on working directory (default: 100Mb)
+<li><b>rmWorkDir</b>: remove workdir when web page disconnects? (default: true)
 </ul>
 When <b>workDir</b> is configured, user sub-directories will be created
 in the <b>workDir</b> directory to contain temporary files. Analysis
 tasks will be started in the work sub-directory.
 <p>
-By default, the work directory is removed when the Web page is unloaded,
+By default, the work directory is removed when the web page is unloaded,
 but this can be changed by setting <b>rmWorkDir</b> to false.
 <p>
 Note that the <b>workDirQuota</b> is not a hard quota: JS9 tasks such
@@ -283,8 +317,8 @@ directory) so as to bring the total under the quota.
 <p>
 NB: use this service with care. It allows users to consume disk resources!
 <p>
-For security reasons, JavaScript contained in one Web page can
-access data in another Web page only if both Web pages have the
+For security reasons, JavaScript contained in one web page can
+access data in another web page only if both web pages have the
 same origin (i.e., basically coming from the same host).  This
 policy is called the 
 <a href="https://en.wikipedia.org/wiki/Same-origin_policy">
@@ -300,9 +334,10 @@ A CGI or Node.js back-end server can be set up as a proxy server by
 setting the following globalOpts properties in the js9Prefs.json file
 (before starting the server):
 <ul>
-<li><b>loadProxy</b>: set to true to enable proxy load
-<li><b>workDir</b>: set to the relative path of a directory which
-will hold temporary working directories for each loaded Web page.
+<li><b>loadProxy</b>: set to true to enable proxy load (default: true)
+<li><b>workDir</b>: see above
+<li><b>workDirQuota</b>: see above
+<li><b>rmWorkDir</b>: see above
 </ul>
 <p>
 When the back-end server supports the proxy service, you will see a
@@ -310,7 +345,7 @@ menu option in the <b>File</b> menu called <b>open link via proxy ...</b>
 <p>
 Enter a FITS URL into the proxy dialog box and press the <b>Load</b>
 button. The data file will be retrieved by the server and stored in a
-directory specifically tied to the Web page. (The directory and its
+directory specifically tied to the web page. (The directory and its
 contents will be deleted when the page is unloaded.)  JS9 then will
 load the file from this directory. Note that since the file resides on
 the back-end server, all back-end analysis defined on that server is
@@ -318,7 +353,7 @@ available.
 <p>
 This technique can also be used FITS links from other sources. For
 example, if you have a FITS file on Google Drive, Dropbox or even a
-static Web page, you can generate/copy the link and paste it into the
+static web page, you can generate/copy the link and paste it into the
 proxy dialog box for display. (Dropbox files also can utilize
 the <b>open link via CORS ...</b> option, which downloads the data
 directly to JS9, bypassing the proxy server.)
@@ -327,7 +362,7 @@ Note that individual proxy FITS files are deleted from the working
 directory when they are closed in JS9 using the <b>File:close
 image</b> menu option.
 
-<h5>Last updated: November 5, 2015</h5>
+<h5>Last updated: September 6, 2016</h5>
 </div>
 
 </body>
