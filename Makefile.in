@@ -136,15 +136,16 @@ WEBFILES =	js9.js js9.min.js js9worker.js \
 		js9support.txt js9.css fitsy.js fitsy.min.js \
 		$(ALLIN1).js $(ALLIN1).css \
 		js9Msg.js js9PostMessage.js js9Helper.js \
-		js9Electron.js js9Regions.js \
-		js9Prefs-default.json js9Prefs.json \
-		js9prefs-default.js js9prefs.js \
+		js9Electron.js js9ElectronPreload.js js9Regions.js \
+		js9Prefs-default.json js9prefs-default.js \
+		astroem.js astroemw.js astroemw.wasm \
 		favicon.ico index.html
 
 RMFILES =	analysis-plugins/imageSection.json
 
 GZFILES =	js9.js js9.min.js js9support.js js9support.min.js \
-		js9plugins.js js9-allinone.js
+		js9plugins.js js9-allinone.js \
+		astroem.js astroemw.js astroemw.wasm
 
 SAOFILES =	index.html
 
@@ -158,7 +159,7 @@ PLCSSFILES =	plugins/core/blend.css plugins/core/blink.css \
 		plugins/core/layers.css plugins/core/mef.css \
 		plugins/core/mousetouch.css
 
-JSFILES =	js/winmod.js js/jquery.min.js js/jquery-ui.min.js js/jquery.contextMenu.min.js js/jquery.flot.min.js js/jquery.flot.errorbars.min.js js/jquery.flot.navigate.min.js js/jquery.flot.resize.min.js js/jquery.flot.selection.min.js js/flot-zoom.min.js js/sprintf.min.js js/dhtmlwindow.min.js js/dhtmlwindow_blurb.js js/fabric.min.js js/pako_inflate.min.js js/FileSaver.min.js js/canvas-toBlob.js js/tabcontent.js js/astroem.js js/arrive.min.js js/jquery.doubletap.min.js js/jquery.flot.axislabels.js js/spin.js js/ElementQueries.js js/ResizeSensor.js js/gaussblur.js js/imagefilters.js js/jquery.ui.touch-punch.js
+JSFILES =	js/winmod.js js/jquery.min.js js/jquery-ui.min.js js/jquery.contextMenu.min.js js/jquery.flot.min.js js/jquery.flot.errorbars.min.js js/jquery.flot.navigate.min.js js/jquery.flot.resize.min.js js/jquery.flot.selection.min.js js/flot-zoom.min.js js/sprintf.min.js js/dhtmlwindow.min.js js/dhtmlwindow_blurb.js js/fabric.min.js js/pako_inflate.min.js js/FileSaver.min.js js/canvas-toBlob.js js/tabcontent.js js/arrive.min.js js/jquery.doubletap.min.js js/jquery.flot.axislabels.js js/spin.js js/ElementQueries.js js/ResizeSensor.js js/gaussblur.js js/imagefilters.js js/jquery.ui.touch-punch.js
 
 JSLINT =	js9.js js9worker.js js9Helper.js js9Electron.js js9Msg.js \
 		js9PostMessage.js js9Regions.js js9Test.js astroem/post.js
@@ -345,7 +346,7 @@ eslint:		FORCE
 		done)
 
 eslint2:	FORCE
-		@(for file in `ls plugins/core/*.js`; do      \
+		@(for file in `ls plugins/core/*.js plugins/fitsy/binning.js`; do      \
 		      echo $$file;               \
 		      eslint $$file;             \
 		done)
@@ -435,34 +436,32 @@ install-webdirs:	FORCE
 
 install-webfiles:	FORCE
 	@(if [ x$(WEBDIR) != x ]; then \
-	echo "Installing web files ..."; \
-	if [ x$(WEBDIR) != x ]; then \
-		mkdir -p $(WEBDIR); \
-		if [ -f $(WEBDIR)/js9Prefs.json ] ; then \
-		    echo "moving aside old js9Prefs.json" ; \
-		    mv $(WEBDIR)/js9Prefs.json{,-old}; \
-	        fi; \
-		if [ -f $(WEBDIR)/js9prefs.js ] ; then \
-		    echo "moving aside old js9prefs.js" ; \
-		    mv $(WEBDIR)/js9prefs.js{,-old}; \
-	        fi; \
-	fi; \
-	for i in $(PREFFILES) $(WEBFILES) js9*.html ; do\
-	    if [ x$(WEBDIR) != x ]; then \
+	    echo "Installing web files ..."; \
+	    mkdir -p $(WEBDIR); \
+	    for i in $(WEBFILES) js9*.html ; do\
 		if [ -d $$i ] ; then \
 		    echo "installing web directory: $$i" ; \
 		elif [ -f $$i ] ; then \
 		    echo "installing web file: $$i" ; \
 		fi; \
 		tar cf - $$i | (cd $(WEBDIR); tar xf -); \
-	    fi; \
-        done; \
-	for i in $(RMFILES); do\
-	    if [ -r $(WEBDIR)/$$i ]; then \
-	        echo "removing $$i file ..."; \
-	        rm -f $(WEBDIR)/$$i; \
-	    fi; \
-        done; \
+            done; \
+	    for i in $(PREFFILES); do\
+		if [ ! -f $(WEBDIR)/$$i ] ; then \
+		    echo "installing web file: $$i" ; \
+		    tar cf - $$i | (cd $(WEBDIR); tar xf -); \
+		else \
+		    if ! diff -q $$i $(WEBDIR)/$$i &>/dev/null; then \
+			echo "not installing $$i to avoid overwriting existing (and different) file"; echo "         override with 'make install-prefs'" ; \
+		    fi; \
+		fi; \
+	    done; \
+	    for i in $(RMFILES); do\
+	        if [ -r $(WEBDIR)/$$i ]; then \
+	            echo "removing $$i file ..."; \
+	            rm -f $(WEBDIR)/$$i; \
+	        fi; \
+	    done; \
         else \
           echo "nothing to install for web files ..." ; \
         fi;)
@@ -491,6 +490,17 @@ install-webdata:	FORCE
 	    if [ x$(WEBDIR) != x ]; then \
 	        mkdir -p $(WEBDIR); \
 		if [ -d $$i ] ; then \
+		    echo "installing $$i" ; \
+		    tar cf - $$i | (cd $(WEBDIR); tar xf -); \
+		fi; \
+	    fi; \
+         done;)
+
+install-prefs:	FORCE
+	@(for i in $(PREFFILES) ; do\
+	    if [ x$(WEBDIR) != x ]; then \
+	        mkdir -p $(WEBDIR); \
+		if [ -f $$i ] ; then \
 		    echo "installing $$i" ; \
 		    tar cf - $$i | (cd $(WEBDIR); tar xf -); \
 		fi; \
@@ -548,7 +558,7 @@ release:	clean gitprefs
 			 --exclude='node_modules/selenium-webdriver' \
 			 --exclude='node_modules/socket.io_v[0-9]*' \
 			 $(WEBFILES) $(WEBDIRS) $(BEDIRS) $(WEBHELP) \
-			 $(JS9TESTS) js9*.html \
+			 $(PREFFILES) $(JS9TESTS) js9*.html \
 			 $(SRCS) $(INCLUDES) $(SCRIPTS) $(MFILES) |\
 		(cd $(DISTDIR)/$(DISTNAME) && tar xf -); \
 		cd $(DISTDIR) ; \

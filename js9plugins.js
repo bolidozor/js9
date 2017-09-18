@@ -1047,17 +1047,17 @@ module.exports = xhr;
 	           <tr>	<td><b>center:</b></td>								\
 			<td><input type=text name=xcen size=10 style="text-align:right;"></td>		\
 			<td><input type=text name=ycen size=10 style="text-align:right;"></td>    	\
-			<td>&nbsp(file coords of center of section)</td>						\
+			<td>&nbsp(center position of section)</td>						\
 		   </tr>										\
 	           <tr>	<td><b>size:</b></td>								\
 			<td><input type=text name=xdim size=10 style="text-align:right;"></td>		\
 			<td><input type=text name=ydim size=10 style="text-align:right;"></td>		\
-			<td>&nbsp(pixel width, height of section)</td>						\
+			<td>&nbsp(width, height of section)</td>						\
 		   </tr>										\
                    <tr>	<td><b>bin:</b></td>							\
 			<td><input type=text name=bin value=1 size=10 style="text-align:right;"></td>	\
 			<td></td>									\
-			<td>&nbsp(bin factor applied to section)</td>						\
+			<td>&nbsp(apply bin factor to section)</td>						\
 		   </tr>										\
 	           <tr>	<td><b>filter:</b></td>								\
 			<td colspan="2"><input type=text name=filter size="22" style="text-align:left;"></td>	\
@@ -1066,7 +1066,7 @@ module.exports = xhr;
 	           <tr>	<td><b>separate:</b></td>			\
                         <td><input type=checkbox name=separate class="sep-image" style="text-align:left;"></td>	\
 			<td></td>									\
-			<td>&nbsp(display as a separate image?)</td>						\
+			<td>&nbsp(display as separate image?)</td>						\
 		   </tr>										\
 		   <tr>											\
 			<td><input type=button name=rebin value="Run" class="rebin-image"></td>         \
@@ -2935,7 +2935,7 @@ JS9.Info.opts = {
 	value: '<tr><td><input type="text" class="column0" value="value" readonly="readonly" /></td><td colspan="2"><input type="text" name="val3" class="input2" value="" readonly="readonly" /></td></tr>',
 	impos: '<tr><td><input type="text" class="column0" value="image" readonly="readonly" /></td><td colspan="2"><input type="text" name="ipos" class="input2" value="" readonly="readonly" /></td></tr>',
 	physpos: '<tr><td><input type="text" class="column0" value="physical" readonly="readonly" /></td><td colspan="2"><input type="text" name="ppos" class="input2" value="" readonly="readonly" /></td></tr>',
-	wcspos: '<tr><td><input type="text" class="column0" value="wcs" readonly="readonly" /></td><td colspan="2"><input type="text" name="wcspos" class="input2" value="" readonly="readonly" /></td></tr>',
+	wcspos: '<tr><td><input type="text" class="column0" value="wcs" name="wcssys" readonly="readonly" /></td><td colspan="2"><input type="text" name="wcspos" class="input2" value="" readonly="readonly" /></td></tr>',
 	 regions: '<tr><td><input type="text" class="column0" value="regions" readonly="readonly" /></td><td colspan="2"><textarea class="text2" name="regions" rows="4" value="" readonly="readonly" /></td></tr>',
 	 progress: '<tr><td colspan="2"><div class="JS9Progress"><progress name="progress" class="JS9ProgressBar" value="0" max="100"></progress></div></td></tr>'
     }
@@ -3992,7 +3992,6 @@ JS9.Magnifier.init = function(width, height){
     // turn off anti-aliasing
     if( !JS9.ANTIALIAS ){
 	this.context.imageSmoothingEnabled = false;
-	this.context.mozImageSmoothingEnabled = false;
 	this.context.webkitImageSmoothingEnabled = false;
 	this.context.msImageSmoothingEnabled = false;
     }
@@ -4580,6 +4579,12 @@ JS9.Menubar.init = function(width, height){
 		    items.xnew.disabled = true;
 		}
 		items["sep" + n++] = "------";
+		if( window.isElectron && window.electronIPC ){
+		    items.electronHelper = {name: "connect to JS9 helper"};
+		    if(  JS9.helper.connected ){
+			items.electronHelper.disabled = true;
+		    }
+		}
 		items.pageid = {name: "display page id"};
 		if( JS9.DEBUG > 2 ){
 		  items["sep" + n++] = "------";
@@ -4654,8 +4659,17 @@ JS9.Menubar.init = function(width, height){
 			case "xnew":
 			    JS9.LoadWindow(null, null, "new");
 			    break;
+			case "electronHelper":
+			    // Electron.js: send message to main
+			    if( window.isElectron && window.electronIPC ){
+				try{ window.electronIPC.send("msg",
+							     "startHelper"); }
+				catch(ignore){}
+			    }
+			    break;
 			case "pageid":
-			    s = sprintf("<center><p>pageid: %s</center>", JS9.helper.pageid || "none");
+			    s = sprintf("<center><p>pageid: %s</center>",
+					JS9.helper.pageid || "none");
 			    t = "JS9 page id";
 			    // add display to title
 			    t += sprintf(JS9.IDFMT, udisp.id);
@@ -5736,8 +5750,10 @@ JS9.Menubar.init = function(width, height){
 			    // otherwise it's a wcs directive
 			    if( JS9.wcssyss.join("@").search(rexp) >=0 ){
 				uim.setWCSSys(key);
+				uim.updateShapes("regions", "all", "wcs");
 			    } else if( JS9.wcsunitss.join("@").search(rexp)>=0){
 				uim.setWCSUnits(key);
+				uim.updateShapes("regions", "all", "wcs");
 			    } else {
 				JS9.error("unknown wcs sys/units: " + key);
 			    }
@@ -5947,6 +5963,10 @@ JS9.Menubar.init = function(width, height){
 		    if( JS9.globalOpts.loadProxy &&
 			im && im.raw && im.raw.hdu && im.raw.hdu.vfile ){
 			items.upload = {name: "upload FITS to make tasks available"};
+			if( JS9.helper.type !== "nodejs" &&
+			    JS9.helper.type !== "socket.io" ){
+			    items.upload.disabled = true;
+			}
 		    }
 		}
 		items["sep" + n++] = "------";
@@ -6105,7 +6125,7 @@ JS9.Menubar.init = function(width, height){
 		    callback: function(key){
 			switch(key){
 			case "about":
-			    alert(sprintf("JS9: image display right in your browser\nversion: %s\nprincipals: Eric Mandel (lead), Alexey Vikhlinin (science,management)\ncontact: saord@cfa.harvard.edu\n%s", JS9.VERSION, JS9.COPYRIGHT));
+			    alert(sprintf("JS9: astronomical image display everywhere\nversion: %s\nprincipals: Eric Mandel (lead), Alexey Vikhlinin (science,management)\ncontact: saord@cfa.harvard.edu\n%s", JS9.VERSION, JS9.COPYRIGHT));
 			    break;
 			default:
 			    JS9.DisplayHelp(key);
@@ -6237,7 +6257,6 @@ JS9.Panner.init = function(width, height){
     // turn off anti-aliasing
     if( !JS9.ANTIALIAS ){
 	this.context.imageSmoothingEnabled = false;
-	this.context.mozImageSmoothingEnabled = false;
 	this.context.webkitImageSmoothingEnabled = false;
 	this.context.msImageSmoothingEnabled = false;
     }
@@ -6808,6 +6827,10 @@ JS9.Prefs.displaysSchema = {
 	    "type": "boolean",
 	    "helper": "scroll/pinch to zoom?"
 	},
+	"regionConfigSize": {
+	    "type": "string",
+	    "helper": "size of region dialog: small, medium"
+	},
 	"fits2fits": {
 	    "type": "string",
 	    "helper": "make rep file?: true,false,size>N"
@@ -6891,6 +6914,7 @@ JS9.Prefs.init = function(){
 			   touchActions: JS9.globalOpts.touchActions,
 			   keyboardActions: JS9.globalOpts.keyboardActions,
 			   mousetouchZoom: JS9.globalOpts.mousetouchZoom,
+			   regionConfigSize: JS9.globalOpts.regionConfigSize,
 			   infoBox: JS9.globalOpts.infoBox};
 	    break;
 	default:
@@ -7523,7 +7547,7 @@ imops.mksection = function(x, y, w, h) {
         return [[x-(w/2), x+(w/2)], [y-(h/2), y+(h/2)]];
 };
 
-imops._rproj = typed(function(a, cx, cy, radius, length) {
+imops._rproj = typed(function (a, cx, cy, radius, length) {
     var rad = new Float32Array(length);
     var val = new Float32Array(length);
     var r = Math.sqrt(radius*radius);

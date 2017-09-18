@@ -1,4 +1,4 @@
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.235865.svg)](https://doi.org/10.5281/zenodo.235865)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.834742.svg)](https://doi.org/10.5281/zenodo.834742)
 
 JS9: astronomical image display everywhere
 ==========================================
@@ -16,6 +16,7 @@ What does it do?
   - control JS9 using scripts from the Linux shell or Python
   - runs on Macs, Linux, Windows, iPads, iPhones, ...
   - runs as a Desktop app, in all modern browsers, mobile apps are coming ...
+  - utilizes WebAssembly, if present (FITS processing at near native speed!)
 
 How can I try it out?
 ---------------------
@@ -75,7 +76,7 @@ build the JS9 helper and install JS9 in a web directory:
 
     # start helper
     cd path_to_web_install
-    node js9Helper.js 2>&1 > js9node.log &
+    node js9Helper.js 1>js9node.log 2>&1 &
 
 What about scripting?
 ---------------------

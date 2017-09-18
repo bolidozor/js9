@@ -247,6 +247,12 @@ JS9.Menubar.init = function(width, height){
 		    items.xnew.disabled = true;
 		}
 		items["sep" + n++] = "------";
+		if( window.isElectron && window.electronIPC ){
+		    items.electronHelper = {name: "connect to JS9 helper"};
+		    if(  JS9.helper.connected ){
+			items.electronHelper.disabled = true;
+		    }
+		}
 		items.pageid = {name: "display page id"};
 		if( JS9.DEBUG > 2 ){
 		  items["sep" + n++] = "------";
@@ -321,8 +327,17 @@ JS9.Menubar.init = function(width, height){
 			case "xnew":
 			    JS9.LoadWindow(null, null, "new");
 			    break;
+			case "electronHelper":
+			    // Electron.js: send message to main
+			    if( window.isElectron && window.electronIPC ){
+				try{ window.electronIPC.send("msg",
+							     "startHelper"); }
+				catch(ignore){}
+			    }
+			    break;
 			case "pageid":
-			    s = sprintf("<center><p>pageid: %s</center>", JS9.helper.pageid || "none");
+			    s = sprintf("<center><p>pageid: %s</center>",
+					JS9.helper.pageid || "none");
 			    t = "JS9 page id";
 			    // add display to title
 			    t += sprintf(JS9.IDFMT, udisp.id);
@@ -1403,8 +1418,10 @@ JS9.Menubar.init = function(width, height){
 			    // otherwise it's a wcs directive
 			    if( JS9.wcssyss.join("@").search(rexp) >=0 ){
 				uim.setWCSSys(key);
+				uim.updateShapes("regions", "all", "wcs");
 			    } else if( JS9.wcsunitss.join("@").search(rexp)>=0){
 				uim.setWCSUnits(key);
+				uim.updateShapes("regions", "all", "wcs");
 			    } else {
 				JS9.error("unknown wcs sys/units: " + key);
 			    }
@@ -1614,6 +1631,10 @@ JS9.Menubar.init = function(width, height){
 		    if( JS9.globalOpts.loadProxy &&
 			im && im.raw && im.raw.hdu && im.raw.hdu.vfile ){
 			items.upload = {name: "upload FITS to make tasks available"};
+			if( JS9.helper.type !== "nodejs" &&
+			    JS9.helper.type !== "socket.io" ){
+			    items.upload.disabled = true;
+			}
 		    }
 		}
 		items["sep" + n++] = "------";
@@ -1772,7 +1793,7 @@ JS9.Menubar.init = function(width, height){
 		    callback: function(key){
 			switch(key){
 			case "about":
-			    alert(sprintf("JS9: image display right in your browser\nversion: %s\nprincipals: Eric Mandel (lead), Alexey Vikhlinin (science,management)\ncontact: saord@cfa.harvard.edu\n%s", JS9.VERSION, JS9.COPYRIGHT));
+			    alert(sprintf("JS9: astronomical image display everywhere\nversion: %s\nprincipals: Eric Mandel (lead), Alexey Vikhlinin (science,management)\ncontact: saord@cfa.harvard.edu\n%s", JS9.VERSION, JS9.COPYRIGHT));
 			    break;
 			default:
 			    JS9.DisplayHelp(key);

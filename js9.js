@@ -1,6 +1,6 @@
 /*
  *
- * JS9: image display right in your browser (December 10, 2012)
+ * JS9: astronomical image display everywhere (December 10, 2012)
  *
  * Principals: Eric Mandel, Alexey Vikhlinin
  * Organization: Harvard Smithsonian Center for Astrophysics, Cambridge MA
@@ -12,6 +12,10 @@
 
 /*global JS9Prefs, $, jQuery, Event, fabric, io, CanvasRenderingContext2D, sprintf, Blob, ArrayBuffer, Uint8Array, Uint16Array, Int8Array, Int16Array, Int32Array, Float32Array, Float64Array, DataView, FileReader, Fitsy, Astroem, dhtmlwindow, saveAs, Spinner, ResizeSensor, Jupyter, gaussBlur, ImageFilters, Plotly */
 
+// define Escripten Module so we can pass properties (e.g. wasmBinary)
+// eslint-disable-next-line no-unused-vars
+var Module = {};
+
 // JS9 module
 var JS9 = (function(){
 "use strict";
@@ -19,7 +23,7 @@ var JS9 = (function(){
 // module header
 var JS9 = {};
 JS9.NAME = "JS9";		// The name of this namespace
-JS9.VERSION = "1.11";		// The version of this namespace
+JS9.VERSION = "1.12";		// The version of this namespace
 JS9.COPYRIGHT = "Copyright (c) 2012-2017 Smithsonian Institution";
 
 // internal defaults (not usually changed by users)
@@ -94,6 +98,7 @@ JS9.PIXEL_RATIO = (function(){
 JS9.globalOpts = {
     helperType: "none",		// one of: sock.io, get, post, none
     helperPort: 2718,		// default port for node.js helper
+    useWasm: true,		// use WebAssembly if available?
     winType: "light",		// plugin window: "light" or "new"
     rgb: {active: false,	// RGB mode
 	  rim: null,
@@ -107,7 +112,10 @@ JS9.globalOpts = {
     internalValPos: true,	// a fancy info plugin can turns this off
     internalContrastBias: true,	// a fancy colorbar plugin can turns this off
     containContrastBias: false, // contrast/bias only when mouse is in display?
-    htimeout: 10000,		// connection timeout for the helper connect
+    htimeout: 5000,		// connection timeout for the helper connect
+    lhtimeout: 1000,		// connection timeout for local helper connect
+    ehtimeout: 1000,		// connection timeout for Electron connect
+    ehretries: 10,		// connection retries Electron connect
     xtimeout: 180000,		// connection timeout for fetch data requests
     extlist: "EVENTS STDEVT",	// list of binary table extensions
     table: {xdim: 2048, ydim: 2048, bin: 1},// image section size to extract from table
@@ -127,12 +135,12 @@ JS9.globalOpts = {
     resize: true,		// allow resize of display?
     resizeHandle: true,		// add resize handle to display?
     resizeRedisplay: true,	// redisplay image while resizing?
+    regionConfigSize: "medium", // "small", "medium"
     mouseActions: ["display value/position", "change contrast/bias", "pan the image"],// 0,1,2 mousepress
     touchActions: ["display value/position", "change contrast/bias", "pan the image"],// 1,2,3 fingers
     keyboardActions: {
 	b: "toggle selected region: source/background",
 	e: "toggle selected region: include/exclude",
-	o: "open a local FITS file",
 	r: "make regions layer active",
         "/": "copy wcs position to clipboard",
         "?": "copy value and position to clipboard",
@@ -172,12 +180,14 @@ JS9.globalOpts = {
     infoBox: ["file", "object", "wcsfov", "wcscen", "wcspos", "impos", "physpos", "value", "regions", "progress"],
     menuBar: ["file", "view", "zoom", "scale", "color", "region", "wcs", "analysis", "help"],
     hiddenPluginDivs: [], 	     // which static plugin divs start hidden
-    imageTemplates: ".fits,.gz,.fts,.png,.jpg,.jpeg", // templates for local FITS, png, etc.
+    imageTemplates: ".fits,.fts,.png,.jpg,.jpeg", // templates for local images
     regionTemplates: ".reg",         // templates for local region file input
     sessionTemplates: ".ses",        // templates for local session file input
     colormapTemplates: ".cmap",      // templates for local colormap file input
     catalogTemplates: ".cat,.tab",   // templates for local catalog file input
     controlsMatchRegion: "corner",   // true or "corner" or "border"
+    newWindowWidth: 530,	     // width of LoadWindow("new")
+    newWindowHeight: 625,	     // height of LoadWindow("new")
     debug: 0		             // debug level
 };
 
@@ -241,6 +251,8 @@ JS9.lightOpts = {
 	plotWin:  "width=830px,height=420px,center=1,resize=1,scrolling=1",
 	dpathWin: "width=830px,height=175px,center=1,resize=1,scrolling=1",
 	paramWin: "width=830px,height=230px,center=1,resize=1,scrolling=1",
+	regWin0:  "width=600px,height=72px,center=1,resize=1,scrolling=1",
+	regWin:   "width=600px,height=235px,center=1,resize=1,scrolling=1",
 	imageWin: "width=512px,height=598px,center=1,resize=1,scrolling=1",
 	lineWin:  "width=400px,height=60px,center=1,resize=1,scrolling=1"
     }
@@ -406,6 +418,10 @@ if( (JS9.BROWSER[0] === "Firefox") && JS9.BROWSER[2].search(/Linux/) >=0 ){
 // webkit resize is not quite up to par
 if( (JS9.BROWSER[0] === "Chrome") || (JS9.BROWSER[0] === "Safari") ){
     JS9.bugs.webkit_resize = true;
+}
+// chrome does not deal with ".gz" file templates, but other browsers do
+if( (JS9.BROWSER[0] !== "Chrome") ){
+    JS9.globalOpts.imageTemplates += ",.gz";
 }
 // iOS has severe memory limits (05/2017)
 if( JS9.BROWSER[3] ){
@@ -640,7 +656,7 @@ JS9.Image = function(file, params, func){
 	// image or table
 	this.imtab = "image";
 	// downloaded image file, path relative to displayed Web page
-	this.file = file.replace(/\/\.\//, "/");
+	this.file = JS9.cleanPath(file);
 	// take file but discard path (or scheme) up to slashes
 	this.id0 = this.file.split("/").reverse()[0];
 	// save id in case we have to change it for uniqueness
@@ -1029,6 +1045,8 @@ JS9.Image.prototype.mkRawDataFromIMG = function(img){
 	NAXIS2: this.raw.height,
 	BITPIX: this.raw.bitpix
     };
+    // plugin callbacks
+    this.xeqPlugins("image", "onrawdata");
     // allow chaining
     return this;
 };
@@ -1350,6 +1368,8 @@ JS9.Image.prototype.mkRawDataFromPNG = function(){
     this.initWCS();
     // init the logical coordinate system, if possible
     this.initLCS();
+    // plugin callbacks
+    this.xeqPlugins("image", "onrawdata");
     // allow chaining
     return this;
 };
@@ -1359,7 +1379,7 @@ JS9.Image.prototype.mkRawDataFromHDU = function(obj, opts){
     var that = this;
     var i, s, ui, clen, hdu, pars, card, got, rlen, rmvfile, done;
     var header, x1, y1, bin;
-    var oraw, owidth, oheight, obitpix, oltm1_1;
+    var oraw, owidth, oheight, obitpix, oltm1_1, owcssys, owcsunits;
     opts = opts || {};
     if( $.isArray(obj) || JS9.isTypedArray(obj) || obj instanceof ArrayBuffer ){
 	// flatten if necessary
@@ -1394,7 +1414,9 @@ JS9.Image.prototype.mkRawDataFromHDU = function(obj, opts){
 	oheight = this.raw.height;
 	obitpix = this.raw.bitpix;
 	oltm1_1 = this.raw.header.LTM1_1 || 1;
-	this.freeWCS();
+	owcssys = this.params.wcssys;
+	owcsunits = this.params.wcsunits;
+//	this.freeWCS();
     }
     // initialize raws array?
     rlen = this.raws.length;
@@ -1520,14 +1542,15 @@ JS9.Image.prototype.mkRawDataFromHDU = function(obj, opts){
     }
     // convenience variable
     header = this.raw.header;
-    // if the original file header has LTM/LTV keywords, save them now,
-    // so that we can go back to file coords (e.g. in binning.js) at any time
-    if( !oraw && !this.parent ){
-	this.parent = {};
+    // hack for binning.js:
+    // if an original file header has LTM/LTV keywords, save them now,
+    // so that we can go back to file coords at any time
+    if( !oraw && !this.parentFile && !this.parent ){
 	if( header.LTV1 !== undefined   ||
 	    header.LTV2 !== undefined   ||
 	    header.LTM1_1 !== undefined ||
 	    header.LTM2_2 !== undefined ){
+	    this.parent = {};
 	    this.parent.raw = {header: $.extend(true, {}, header)};
 	    // initialize LCS for this parent header
 	    this.parent.lcs = {};
@@ -1674,6 +1697,13 @@ JS9.Image.prototype.mkRawDataFromHDU = function(obj, opts){
     }
     // init WCS, if possible
     this.initWCS();
+    // reset the wcssys and wcsunits to previous, if necessary
+    if( owcssys ){
+	this.setWCSSys(owcssys);
+    }
+    if( owcsunits ){
+	this.setWCSUnits(owcsunits);
+    }
     // init the logical coordinate system, if possible
     this.initLCS();
     // get hdu info, if possible
@@ -1780,6 +1810,8 @@ JS9.Image.prototype.mkRawDataFromHDU = function(obj, opts){
 	    JS9.fits.cleanupFITSFile(this.raw.hdu.fits, true);
 	}
     }
+    // plugin callbacks
+    this.xeqPlugins("image", "onrawdata");
     // allow chaining
     return this;
 };
@@ -2429,7 +2461,7 @@ JS9.Image.prototype.putImage = function(opts){
 	    // turn off anti-aliasing
 	    if( !JS9.ANTIALIAS ){
 		octx.imageSmoothingEnabled = false;
-		octx.mozImageSmoothingEnabled = false;
+		// octx.mozImageSmoothingEnabled = false;
 		octx.webkitImageSmoothingEnabled = false;
 		octx.msImageSmoothingEnabled = false;
 	    }
@@ -2851,7 +2883,7 @@ JS9.Image.prototype.displaySection = function(opts, func) {
 		// output is file and possibly parentFile
 		rarr = obj.stdout.split(/\n/);
 		// file
-		f = rarr[0].trim().replace(/\/\.\//, "/");
+		f = JS9.cleanPath(rarr[0]);
 		// relative path: add install dir prefix
 		if( f.charAt(0) !== "/" ){
 		    f = JS9.InstallDir(f);
@@ -2875,7 +2907,7 @@ JS9.Image.prototype.displaySection = function(opts, func) {
 		}
 		// look for parentFile (path relative to helper, not install)
 		if( rarr[2] ){
-		    pf = rarr[2].trim().replace(/\/\.\//, "/");
+		    pf = JS9.cleanPath(rarr[2]);
 		    opts.parentFile = pf;
 		}
 		// hack: use LTM to determine bin/obin, since both will be 1
@@ -3546,7 +3578,6 @@ JS9.Image.prototype.setWCSUnits = function(wcsunits){
 	s = JS9.wcsunits(this.raw.wcs, wcsunits);
 	if( s ){
 	    this.params.wcsunits = s.trim();
-	    // this.updateShapes("regions", "all", "update");
 	}
     }
     // extended plugins
@@ -3564,6 +3595,20 @@ JS9.Image.prototype.notifyHelper = function(){
     var imexp = new RegExp("^"+JS9.ANON+"[0-9]*");
     // notify the helper
     if( JS9.helper.connected && !this.file.match(imexp) ){
+	switch(JS9.helper.type){
+	case "get":
+	case "post":
+	    // get pageid from CGI helper (socket.io does this when connecting)
+	    if( !JS9.helper.pageid ){
+		JS9.helper.send("pageid", null, function(s){
+		    if( s && s.trim().match(/^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/) ){
+			JS9.helper.pageid = s;
+		    }
+		});
+		break;
+	    }
+	}
+	// get helper info about this image
 	JS9.helper.send("image", {"image": this.file},
         function(res){
 	    var rstr, r, s, cc, im, regexp;
@@ -3625,10 +3670,10 @@ JS9.Image.prototype.notifyHelper = function(){
 		}
 	    }
 	    if( im && im.fitsFile ){
-		im.fitsFile = im.fitsFile.replace(/\/\.\//g, "/");
+		im.fitsFile = JS9.cleanPath(im.fitsFile);
 	    }
 	    if( im && im.parentFile ){
-		im.parentFile = im.parentFile.replace(/\/\.\//g, "/");
+		im.parentFile = JS9.cleanPath(im.parentFile);
 	    }
 	    // first time through, query the helper for info
 	    if( !that.queried ){
@@ -3970,7 +4015,7 @@ JS9.Image.prototype.runAnalysis = function(name, opts, func){
 		// output is file and possibly parentFile
 		files = robj.stdout.split(/\s+/);
 		// file
-		f = files[0].trim().replace(/\/\.\//, "/");
+		f = JS9.cleanPath(files[0]);
 		// relative path: add install dir prefix
 		if( f.charAt(0) !== "/" ){
 		    f = JS9.InstallDir(f);
@@ -3979,7 +4024,7 @@ JS9.Image.prototype.runAnalysis = function(name, opts, func){
 		xobj = {proxyFile: f};
 		// look for parentFile (path relative to helper, not install)
 		if( files[1] ){
-		    pf = files[1].trim().replace(/\/\.\//, "/");
+		    pf = JS9.cleanPath(files[1]);
 		    xobj.parentFile = pf;
 		}
 		// don't convert this FITS file into another FITS file!
@@ -4261,6 +4306,7 @@ JS9.Image.prototype.displayAnalysis = function(type, s, opts){
 	}
 	break;
     case "params":
+    case "regions":
     case "textline":
         if( divid ){
 	    if( JS9.allinone ){
@@ -4276,6 +4322,12 @@ JS9.Image.prototype.displayAnalysis = function(type, s, opts){
 	} else {
 	    if( type === "params" ){
 		winFormat = winFormat || a.paramWin;
+	    } else if( type === "regions" ){
+		if( JS9.globalOpts.regionConfigSize === "small" ){
+		    winFormat = winFormat || a.regWin0;
+		} else {
+		    winFormat = winFormat || a.regWin;
+		}
 	    } else {
 		winFormat = winFormat || a.dpathWin;
 	    }
@@ -4651,35 +4703,37 @@ JS9.Image.prototype.updateValpos = function(ipos, disp){
 	    obj.dec = s[1];
 	    obj.wcspos = s[0] + sep1 + s[1];
 	    obj.wcssys = s[2];
-	    cd1 = Math.abs(this.raw.header.CDELT1);
-	    cd2 = Math.abs(this.raw.header.CDELT2);
-	    v1 = 1/60;
-	    if( (cd1 >= 1) || (cd2 >= 1) ){
-		units = "deg";
-	    } else if( (cd1 >= v1) || (cd2 >= v1) ){
-		units = "'";
-		cd1 *= 60;
-		cd2 *= 60;
-	    } else {
-		units = '"';
-		cd1 *= 3600;
-		cd2 *= 3600;
+	    if( this.raw.wcsinfo ){
+		cd1 = Math.abs(this.raw.wcsinfo.cdelt1);
+		cd2 = Math.abs(this.raw.wcsinfo.cdelt2);
+		v1 = 1/60;
+		if( (cd1 >= 1) || (cd2 >= 1) ){
+		    units = "deg";
+		} else if( (cd1 >= v1) || (cd2 >= v1) ){
+		    units = "'";
+		    cd1 *= 60;
+		    cd2 *= 60;
+		} else {
+		    units = '"';
+		    cd1 *= 3600;
+		    cd2 *= 3600;
+		}
+		sect = this.rgb.sect;
+		bin = this.binning.bin;
+		v1 = ((sect.x1 - sect.x0) * cd1).toFixed(0);
+		v2 = ((sect.y1 - sect.y0) * cd2).toFixed(0);
+		obj.wcsfov = v1 + units + " x " + v2 + units;
+		v1 = cd1.toFixed(2) * bin / sect.zoom;
+		obj.wcspix = v1 + units + " / pixel";
+		obj.wcsfovpix = obj.wcsfov + "  (" + obj.wcspix + ")";
+		obj.vstr = vstr;
+		s = JS9.pix2wcs(this.raw.wcs,
+				(sect.x1 + sect.x0)/2, (sect.y1 + sect.y0)/2)
+		    .trim().split(/\s+/);
+		obj.racen = s[0];
+		obj.deccen = s[1];
+		obj.wcscen = s[0] + sep1 + s[1];
 	    }
-	    sect = this.rgb.sect;
-	    bin = this.binning.bin;
-	    v1 = ((sect.x1 - sect.x0) * cd1).toFixed(0);
-	    v2 = ((sect.y1 - sect.y0) * cd2).toFixed(0);
-	    obj.wcsfov = v1 + units + " x " + v2 + units;
-	    v1 = cd1.toFixed(2) * bin / sect.zoom;
-	    obj.wcspix = v1 + units + " / pixel";
-	    obj.wcsfovpix = obj.wcsfov + "  (" + obj.wcspix + ")";
-	    obj.vstr = vstr;
-	    s = JS9.pix2wcs(this.raw.wcs,
-			    (sect.x1 + sect.x0)/2, (sect.y1 + sect.y0)/2)
-	    .trim().split(/\s+/);
-	    obj.racen = s[0];
-	    obj.deccen = s[1];
-	    obj.wcscen = s[0] + sep1 + s[1];
 	}
 	if( disp ){
 	    this.display.displayMessage("info", obj);
@@ -4718,13 +4772,19 @@ JS9.Image.prototype.setColormap = function(arg, arg2, arg3){
 	    if( this.cmapObj ){
 		switch(this.cmapObj.name){
 		case "red":
-		    JS9.globalOpts.rgb.rim = null;
+		    if( this === JS9.globalOpts.rgb.rim ){
+			JS9.globalOpts.rgb.rim = null;
+		    }
 		    break;
 		case "green":
-		    JS9.globalOpts.rgb.gim = null;
+		    if( this === JS9.globalOpts.rgb.gim ){
+			JS9.globalOpts.rgb.gim = null;
+		    }
 		    break;
 		case "blue":
-		    JS9.globalOpts.rgb.bim = null;
+		    if( this === JS9.globalOpts.rgb.bim ){
+			JS9.globalOpts.rgb.bim = null;
+		    }
 		    break;
 		}
 	    }
@@ -6036,7 +6096,7 @@ JS9.Image.prototype.uploadFITSFile = function(){
 
 // remove proxy file from a remote server
 JS9.Image.prototype.removeProxyFile = function(s){
-    var reset, file;
+    var t, reset, file, regexp;
     var that = this;
     var func = function(r){
 	if( reset ){
@@ -6053,9 +6113,15 @@ JS9.Image.prototype.removeProxyFile = function(s){
 	reset = s;
     } else if( typeof s === "string" ){
 	// specify file to remove in the working directory
-	// check for attempt to break out of the working dir
-	if( s.match(/^\//) || s.match(/\.\./) ){
-	    JS9.error("attempt to remove file outside working directory");
+	// check for attempt to break out of the working dir using abs path
+	if( s.match(/^\//) ){
+	    return;
+	}
+	// remove possible install dir prefix and then ...
+	// check attempt to break out of the working dir using ".."
+	regexp = new RegExp("^"+JS9.INSTALLDIR);
+	t = s.replace(regexp, "");
+	if( t.match(/\.\./) ){
 	    return;
 	}
 	file = s;
@@ -6315,18 +6381,59 @@ JS9.Display = function(el){
     this.divjq.on("contextmenu", this, function(){
 	return false;
     });
-    this.divjq.append('<div style="visibility:hidden; position:relative; top:-50;left:-50"> <input type="file" accept='+JS9.globalOpts.imageTemplates+' id="openLocalFile-' + this.id + '" multiple="true" onchange="javascript:for(var i=0; i<this.files.length; i++){JS9.Load(this.files[i], {display:\''+ this.id +'\'});};this.value=null;return false;"> </div>');
-    this.divjq.append('<div style="visibility:hidden; position:relative; top:-50;left:-50"> <input type="file" accept='+JS9.globalOpts.imageTemplates+' id="refreshLocalFile-' + this.id + '" multiple="true" onchange="javascript:for(var i=0; i<this.files.length; i++){JS9.RefreshImage(this.files[i], {display:\''+ this.id +'\'});};this.value=null;return false;"> </div>');
-    this.divjq.append('<div style="visibility:hidden; position:relative; top:-50;left:-50"> <input type="file" accept='+JS9.globalOpts.regionTemplates+' id="openLocalRegions-' + this.id + '" multiple="true" onchange="javascript:for(var i=0; i<this.files.length; i++){JS9.LoadRegions(this.files[i], {display:\''+ this.id +'\'}); };this.value=null;return false;"> </div>');
-    this.divjq.append('<div style="visibility:hidden; position:relative; top:-50;left:-50"> <input type="file" accept='+JS9.globalOpts.sessionTemplates+' id="openLocalSession-' + this.id + '" multiple="true" onchange="javascript:for(var i=0; i<this.files.length; i++){JS9.LoadSession(this.files[i], {display:\''+ this.id +'\'});};this.value=null;return false;"> </div>');
-    this.divjq.append('<div style="visibility:hidden; position:relative; top:-50;left:-50"> <input type="file" accept='+JS9.globalOpts.colormapTemplates+' id="openLocalColormap-' + this.id + '" multiple="true" onchange="javascript:for(var i=0; i<this.files.length; i++){JS9.AddColormap(this.files[i], {display:\''+ this.id +'\'});};this.value=null;return false;"> </div>');
-    this.divjq.append('<div style="visibility:hidden; position:relative; top:-50;left:-50"> <input type="file" accept='+JS9.globalOpts.catalogTemplates+' id="openLocalCatalogs-' + this.id + '" multiple="true" onchange="javascript:for(var i=0; i<this.files.length; i++){JS9.LoadCatalog(null, this.files[i], {display:\''+ this.id +'\'}); };this.value=null;return false;"> </div>');
+    // add local file open support
+    this.addFileDialog("Load", JS9.globalOpts.imageTemplates);
+    this.addFileDialog("RefreshImage", JS9.globalOpts.imageTemplates);
+    this.addFileDialog("LoadRegions", JS9.globalOpts.regionTemplates);
+    this.addFileDialog("LoadSession", JS9.globalOpts.sessionTemplates);
+    this.addFileDialog("LoadColormap", JS9.globalOpts.colormapTemplates);
+    this.addFileDialog("LoadCatalog", JS9.globalOpts.catalogTemplates);
     // add to list of displays
     JS9.displays.push(this);
     // debugging
     if( JS9.DEBUG ){
 	JS9.log("JS9 display:  %s", this.id);
     }
+};
+
+// add support for file dialog box that executes JS9 routine on file blobs
+JS9.Display.prototype.addFileDialog = function(funcName, template){
+    var that = this;
+    var jdiv, jinput, id;
+    // sanity check
+    if( !funcName || !JS9.publics[funcName] ){
+	return;
+    }
+    id = "openLocal" + funcName + "-" + that.id;
+    // outer div
+    // https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/file
+    // recommends opacity over visibility, but it breaks the menubar in ios
+    jdiv = $("<div>")
+	.css("visibility", "hidden")
+	.css("position", "relative")
+	.css("top", -50)
+	.css("left", -50)
+	.appendTo(that.divjq);
+    // inner file input element
+    jinput = $("<input>")
+	.attr("type", "file")
+	.attr("id", id)
+	.attr("multiple", true)
+	.appendTo(jdiv);
+    // add accept template, if possible
+    if( template ){
+	jinput.attr("accept", template);
+    }
+    // add callback for when input changes
+    jinput.on("change", function(){
+	var i;
+	for(i=0; i<this.files.length; i++){
+	    // execute a JS9 public access routine
+	    JS9.publics[funcName](this.files[i], {display: that.id});
+	}
+	this.value = null;
+	return false;
+    });
 };
 
 // initialize message layers
@@ -6990,6 +7097,21 @@ JS9.Image.prototype.loadCatalog = function(layer, catalog, opts){
 	obj.val = s;
 	return obj;
     };
+    // special case: 1 non-string arg is the catalog, not the layer
+    if( arguments.length === 1 && typeof layer !== "string" ){
+	catalog = layer;
+	layer = null;
+    }
+    // special case: 2 non-string args: file and obj, not the layer
+    if( arguments.length === 2 && typeof layer !== "string" ){
+	opts = catalog;
+	catalog = layer;
+	layer = null;
+    }
+    // sanity check
+    if( !catalog ){
+	return;
+    }
     if( global.tooltip ){
 	lopts.tooltip = global.tooltip;
     }
@@ -7054,6 +7176,90 @@ JS9.Image.prototype.saveCatalog = function(fname, which){
     return fname;
 };
 
+// convert ra, dec from one wcs to another
+JS9.Image.prototype.wcs2wcs = function(from, to, ra, dec){
+    var owcssys, ounits, nwcs, arr, x, y, s, v0;
+    // sve current wcs and units
+    owcssys = this.getWCSSys();
+    ounits = this.getWCSUnits();
+    // to, from default to current wcs
+    from = from || owcssys;
+    to = to || owcssys;
+    //  convert ra, dec from string input to float degrees, if necessary
+    if( typeof ra === "string" ){
+	v0 = JS9.strtoscaled(ra);
+	if( (v0.dtype === ":") &&
+	    (from !== "galactic") && (from !== "ecliptic") ){
+	    v0.dval *= 15.0;
+	}
+	ra = v0.dval;
+    }
+    if( typeof dec === "string" ){
+	v0 = JS9.strtoscaled(dec);
+	dec = v0.dval;
+    }
+    // temporarily set the wcs to what we are converting from
+    nwcs = this.setWCSSys(from).getWCSSys();
+    // make sure change was successful
+    if( from !== "native" ){
+	if( nwcs !== from ){
+	    JS9.error("unknown or invalid wcs: " + from);
+	}
+    }
+    // convert input ra, dec into image pixels in this wcs
+    arr = JS9.wcs2pix(this.raw.wcs, ra, dec).trim().split(/ +/);
+    x = parseFloat(arr[0]);
+    y = parseFloat(arr[1]);
+    // set wcs back to the target wcs
+    this.setWCSSys(to);
+    // convert image pixels from input ra, dec into target wcs
+    this.setWCSUnits("degrees");
+    s = JS9.pix2wcs(this.raw.wcs, x, y).trim();
+    // reset wcs to original
+    this.setWCSUnits(ounits);
+    if( owcssys !== to ){
+	this.setWCSSys(owcssys);
+    }
+    // return result
+    return s;
+};
+
+// convert wcs, physical or image image length to image length,
+// using current wcs and string delimiters to determine what input type
+JS9.Image.prototype.wcs2imlen = function(s){
+    var v, wcsinfo;
+    var dpp = 1;
+    // sanity check
+    if( !s ){
+	return;
+    }
+    v = JS9.strtoscaled(s);
+    wcsinfo = this.raw.wcsinfo || {cdelt1: 1, cdelt2: 1};
+    // oh dear, this is cheating ...
+    if( wcsinfo.cdelt1 !== undefined ){
+	dpp = wcsinfo.cdelt1;
+    } else if( wcsinfo.cdelt2 !== undefined ){
+	dpp = wcsinfo.cdelt2;
+    }
+    switch(this.params.wcssys){
+    case "image":
+	break;
+    case "physical":
+	// use the LTM1_1 value stored for logical to image transforms
+	if( this.lcs && this.lcs.physical ){
+	    v.dval = v.dval * this.lcs.physical.forward[0][0];
+	}
+	break;
+    default:
+	// cheap conversion of wcs len to image len
+	if( v.dtype && (v.dtype !== ".") ){
+	    v.dval = Math.abs(v.dval / dpp);
+	}
+	break;
+    }
+    return v.dval;
+};
+
 // ---------------------------------------------------------------------
 // JS9 Command, commands for console window
 // ---------------------------------------------------------------------
@@ -7111,6 +7317,16 @@ JS9.Command.prototype.getWhich = function(args){
 // JS9 helper to manage connection to back-end services
 // ---------------------------------------------------------------------
 JS9.Helper = function(){
+    // reset protocol for file:
+    if( JS9.globalOpts.helperProtocol === "file:" ){
+	JS9.globalOpts.helperProtocol = "http:";
+    }
+    // reset helper timeout for local access
+    if( !document.domain || document.domain === "localhost" ){
+	JS9.globalOpts.htimeout = JS9.globalOpts.lhtimeout;
+    }
+    // add suffix
+    JS9.globalOpts.helperProtocol += "//";
     // assume the worst
     this.connected = false;
     this.helper = false;
@@ -7143,7 +7359,112 @@ JS9.Helper.prototype.connectinfo = function(){
 
 // connect to back-end helper
 JS9.Helper.prototype.connect = function(type){
+    var tries = JS9.globalOpts.ehretries;
+    var delay = JS9.globalOpts.ehtimeout;
     var that = this;
+    var failedHelper = function(jqXHR, textStatus, errorThrown){
+	that.connected = false;
+	that.helper = false;
+	that.ready = true;
+	$(document).trigger("JS9:helperReady",
+			    {type: "socket.io", status: "error"});
+	if( JS9.DEBUG ){
+	    textStatus = textStatus || "timeout";
+	    if( !errorThrown || errorThrown === "timeout" ){
+		errorThrown = "or connection refused";
+	    }
+	    JS9.log(sprintf("JS9 helper connect error: %s (%s)",
+			    textStatus, errorThrown));
+	}
+    };
+    var connectHelper = function(url){
+	// connect to helper
+	$.ajax({
+	    url: url,
+	    dataType: "script",
+	    timeout: JS9.globalOpts.htimeout,
+	    success:  function(){
+		var ii, d;
+		var sockopts = {
+		    reconnection: true,
+		    reconnectionDelay: 1000,
+		    reconnectionDelayMax : 10000,
+		    reconnectionAttempts: 100,
+		    timeout: JS9.globalOpts.htimeout
+		};
+		// connect to the helper
+		that.socket = io.connect(that.url, sockopts);
+		// on-event processing
+		that.socket.on("connect", function(){
+		    that.connected = true;
+		    that.helper = true;
+		    d = [];
+		    for(ii=0; ii<JS9.displays.length; ii++){
+			d.push(JS9.displays[ii].id);
+		    }
+		    that.socket.emit("initialize", {displays: d}, function(obj){
+			that.pageid = obj.pageid;
+			that.js9helper = obj.js9helper;
+			that.ready = true;
+			$(document).trigger("JS9:helperReady",
+					    {type: "socket.io", status: "OK"});
+			if( JS9.DEBUG ){
+			    JS9.log("JS9 helper: connect: " + that.type);
+			}
+		    });
+		    $(document).trigger("JS9:connected",
+					{type: "socket.io", status: "OK"});
+		});
+		that.socket.on("connect_error", function(){
+		    that.connected = false;
+		    that.helper = false;
+		    if( JS9.DEBUG > 1 ){
+			JS9.log("JS9 helper: connect error");
+		    }
+		});
+		that.socket.on("connect_timeout", function(){
+		    that.connected = false;
+		    that.helper = false;
+		    if( JS9.DEBUG > 1 ){
+			JS9.log("JS9 helper: connect timeout");
+		    }
+		});
+		that.socket.on("disconnect", function(){
+		    that.connected = false;
+		    that.helper = false;
+		    if( JS9.DEBUG > 1 ){
+			JS9.log("JS9 helper: disconnect");
+		    }
+		});
+		that.socket.on("reconnect", function(){
+		    that.connected = true;
+		    that.helper = true;
+		    if( JS9.DEBUG > 1 ){
+			JS9.log("JS9 helper: reconnect");
+		    }
+		});
+		that.socket.on("msg", JS9.msgHandler);
+	    },
+	    error:  function(jqXHR, textStatus, errorThrown){
+		failedHelper(jqXHR, textStatus, errorThrown);
+	    }
+	});
+    };
+    var waitForHelper = function(eurl, hurl, tries){
+	$.ajax(eurl)
+	    .done(function(){
+		connectHelper(hurl);
+	    })
+	    .fail(function(){
+		if( --tries > 0 ){
+		    window.setTimeout(function(){
+			waitForHelper(eurl, hurl, tries);
+		    }, delay);
+		} else {
+		    failedHelper();
+		}
+	    });
+    };
     // might be establishing a new type
     if( type ){
 	this.type = type;
@@ -7172,9 +7493,9 @@ JS9.Helper.prototype.connect = function(type){
     switch(this.type){
     case "none":
         this.connected = null;
+	this.ready = true;
         // signal that JS9 helper is ready
-        $(document).trigger("JS9:ready", {type: "none", status: "OK"});
-	JS9.Preload(true);
+        $(document).trigger("JS9:helperReady", {type: "none", status: "OK"});
         break;
     case "get":
     case "post":
@@ -7188,8 +7509,8 @@ JS9.Helper.prototype.connect = function(type){
         if( JS9.DEBUG ){
 	    JS9.log("JS9 helper: connect: " + this.type);
         }
-        $(document).trigger("JS9:ready", {type: "get", status: "OK"});
-	JS9.Preload(true);
+	this.ready = true;
+        $(document).trigger("JS9:helperReady", {type: "get", status: "OK"});
 	break;
     case "sock.io":
     case "nodejs":
@@ -7197,88 +7518,14 @@ JS9.Helper.prototype.connect = function(type){
 	    JS9.error("port missing for helper");
 	}
 	this.url += ":" +  JS9.globalOpts.helperPort;
-	this.sockurl = this.url + "/socket.io/socket.io.js";
-	// connect to helper
-	$.ajax({
-	    url: this.sockurl,
-	    dataType: "script",
-	    timeout: JS9.globalOpts.htimeout,
-	    success:  function(){
-		var ii, d;
-		var sockopts = {
-		    reconnection: true,
-		    reconnectionDelay: 10000,
-		    reconnectionDelayMax : 10000,
-		    reconnectionAttempts: 6,
-		    timeout: JS9.globalOpts.htimeout
-		};
-		// connect to the helper
-		that.socket = io.connect(that.url, sockopts);
-		// on-event processing
-		that.socket.on("connect", function(){
-		    that.connected = true;
-		    that.helper = true;
-		    d = [];
-		    for(ii=0; ii<JS9.displays.length; ii++){
-			d.push(JS9.displays[ii].id);
-		    }
-		    that.socket.emit("initialize", {displays: d}, function(obj){
-			that.pageid = obj.pageid;
-			that.js9helper = obj.js9helper;
-			$(document).trigger("JS9:ready",
-					    {type: "socket.io", status: "OK"});
-			JS9.Preload(true);
-			if( JS9.DEBUG ){
-			    JS9.log("JS9 helper: connect: " + that.type);
-			}
-		    });
-		    $(document).trigger("JS9:connected",
-					{type: "socket.io", status: "OK"});
-		});
-		that.socket.on("connect_error", function(){
-		    that.connected = false;
-		    that.helper = false;
-		    JS9.Preload(true);
-		    if( JS9.DEBUG > 1 ){
-			JS9.log("JS9 helper: connect error");
-		    }
-		});
-		that.socket.on("connect_timeout", function(){
-		    that.connected = false;
-		    that.helper = false;
-		    JS9.Preload(true);
-		    if( JS9.DEBUG > 1 ){
-			JS9.log("JS9 helper: connect timeout");
-		    }
-		});
-		that.socket.on("disconnect", function(){
-		    that.connected = false;
-		    that.helper = false;
-		    if( JS9.DEBUG > 1 ){
-			JS9.log("JS9 helper: disconnect");
-		    }
-		});
-		that.socket.on("reconnect", function(){
-		    that.connected = true;
-		    that.helper = true;
-		    if( JS9.DEBUG > 1 ){
-			JS9.log("JS9 helper: reconnect");
-		    }
-		});
-		that.socket.on("msg", JS9.msgHandler);
-	    },
-	    error:  function(jqXHR, textStatus, errorThrown){
-		that.connected = false;
-		that.helper = false;
-                $(document).trigger("JS9:ready",
-                    {type: "socket.io", status: "error"});
-		JS9.Preload(true);
-		if( JS9.DEBUG ){
-	            JS9.log("JS9 helper: connect failure: " +
-			    textStatus + " " + errorThrown);
-		}
-	    }
-	});
+	this.sockurl  = this.url + "/socket.io/socket.io.js";
+	// make sure helper is running and then connect
+	if( window.isElectron ){
+	    this.aliveurl = this.url + "/alive";
+	    waitForHelper(this.aliveurl, this.sockurl, tries);
+	} else {
+	    connectHelper(this.sockurl);
+	}
 	break;
     default:
 	JS9.error("unknown helper type: "+this.type);
@@ -7312,6 +7559,9 @@ JS9.Helper.prototype.send = function(key, obj, cb){
     case "get":
     case "post":
 	obj.key = key;
+	if( JS9.helper.pageid ){
+	    obj.pageid = JS9.helper.pageid;
+	}
         if( JS9.DEBUG ){
 	    JS9.log("JS9 cgi helper [%s, %s]: %s",
 		    this.type, JSON.stringify(obj), this.url);
@@ -8362,7 +8612,7 @@ JS9.Fabric._parseShapeOptions = function(layerName, opts, obj){
 		nparams.radii = opts.radii.replace(/ /g, "").split(",");
 		for(i=0, j=0; i<nparams.radii.length; i++){
 		    if( nparams.radii[i] !== "" ){
-			nparams.radii[j++] = parseInt(nparams.radii[i], 10);
+			nparams.radii[j++] = this.wcs2imlen(nparams.radii[i]);
 		    }
 		}
 	    } else {
@@ -8773,10 +9023,7 @@ JS9.Fabric.addShapes = function(layerName, shape, myopts){
     myopts = myopts || {};
     if( typeof myopts === "string" ){
 	try{ myopts = JSON.parse(myopts); }
-	catch(e){
-	    JS9.error("can't parse shape opts: " + myopts, e);
-	    return null;
-	}
+	catch(e){ JS9.error("can't parse shape opts: " + myopts, e); }
     }
     // delay adding the region, if this image is not the one being displayed
     if( this.display.image !== this ){
@@ -8947,7 +9194,7 @@ JS9.Fabric.addShapes = function(layerName, shape, myopts){
 	// backlink to layer name
 	params.layerName = layerName;
 	// save original strokeWidth for zooming
-	params.sw1 = s.strokeWidth;
+	params.sw1 = Math.max(1, Math.floor(s.strokeWidth + 0.5));
 	// initalize
 	params.listonchange = false;
 	// breaks panner, magnifier
@@ -8988,7 +9235,7 @@ JS9.Fabric.addShapes = function(layerName, shape, myopts){
 // select a one of more shapes by id or tag and execute a callback
 // call using image context
 JS9.Fabric.selectShapes = function(layerName, id, cb){
-    var i, group, ginfo, sobj, canvas, objects, olen, obj;
+    var i, group, ginfo, sobj, canvas, objects, olen, obj, ocolor;
     var that = this;
     // sanity check
     if( !this.layers || !layerName || !this.layers[layerName] ){
@@ -8996,6 +9243,11 @@ JS9.Fabric.selectShapes = function(layerName, id, cb){
     }
     // no id means "all"
     id = id || "all";
+    // if id is a positive int in string format, convert it to it now
+    // so we can process it as a region id coming from the command line
+    if( (typeof id === "string") && /^[1-9]\d*$/.test(id) ){
+	id = parseInt(id, 10);
+    }
     // convenience variable(s)
     canvas = this.layers[layerName].canvas;
     // see if we have an active group
@@ -9060,6 +9312,7 @@ JS9.Fabric.selectShapes = function(layerName, id, cb){
 	    while( olen-- ){
 		obj = objects[olen];
 		if( obj.params ){
+		    ocolor = obj.stroke.toLowerCase();
 		    if( group && group.contains(obj) ){
 			ginfo.group = group;
 		    } else {
@@ -9068,7 +9321,8 @@ JS9.Fabric.selectShapes = function(layerName, id, cb){
 		    if( id === "all" ){
 			// all
 			cb.call(that, obj, ginfo);
-		    } else if( JS9.colorToHex(id) === obj.stroke.toLowerCase()){
+		    } else if( (id.toLowerCase() === ocolor) ||
+			       (JS9.colorToHex(id).toLowerCase() === ocolor) ){
 			// color
 			cb.call(that, obj, ginfo);
 		    } else if( id === obj.params.shape ){
@@ -9467,6 +9721,11 @@ JS9.Fabric.changeShapes = function(layerName, shape, opts){
     // sanity check
     if( !opts ){
 	return;
+    }
+    // allow opts to be a JSON string
+    if( typeof opts === "string" ){
+	try{ opts = JSON.parse(opts); }
+	catch(e){ JS9.error("can't parse shape opts: " + opts, e); }
     }
     canvas = layer.canvas;
     // is image zoom part of scale?
@@ -10837,11 +11096,11 @@ JS9.Regions.opts = {
 			}
 		    });
 		if( JS9.allinone ){
-		    target.params.winid = im.displayAnalysis("params",
+		    target.params.winid = im.displayAnalysis("regions",
 			  JS9.allinone.regionsConfigHTML,
 			  {title: "Region Configuration"});
 		} else {
-		    target.params.winid = im.displayAnalysis("params",
+		    target.params.winid = im.displayAnalysis("regions",
 			  JS9.InstallDir(JS9.Regions.opts.configURL),
 			  {title: "Region Configuration"});
 		}
@@ -10932,7 +11191,8 @@ JS9.Regions.init = function(layerName){
 // initialize the region config form
 // call using image context
 JS9.Regions.initConfigForm = function(obj){
-    var key, val;
+    var i, s, key, val, el, wcssys, altwcssys, ra, dec, mover, mout;
+    var that = this;
     var params = obj.params;
     var winid = params.winid;
     var wid = $(winid).attr("id");
@@ -10946,6 +11206,8 @@ JS9.Regions.initConfigForm = function(obj){
 	}
 	return(String(val));
     };
+    // get alternate wcssys, if necessary
+    altwcssys = $(form).data("wcssys");
     // remove the nodisplay class from this shape's div
     $(form + "." + obj.pub.shape).each(function(){
 	$(this).removeClass("nodisplay");
@@ -10967,12 +11229,17 @@ JS9.Regions.initConfigForm = function(obj){
 	    break;
 	case "radii":
 	    if( obj.pub.radii ){
-		obj.pub.radii.forEach(function(p){
-		    if( val ){
-			val += ", ";
-		    }
-		    val += p.toFixed(1);
-		});
+		if( that.params.wcssys === "image"    ||
+		    that.params.wcssys === "physical" ||
+		    !obj.pub.wcsstr                   ){
+		    val = obj.pub.imstr
+			.replace(/^annulus\(/,"").replace(/\)$/,"")
+			.split(",").slice(2).join(",");
+		} else {
+		    val = obj.pub.wcsstr
+			.replace(/^annulus\(/,"").replace(/\)$/,"")
+			.split(",").slice(2).join(",");
+		}
 	    }
 	    break;
 	case "pts":
@@ -11023,19 +11290,122 @@ JS9.Regions.initConfigForm = function(obj){
 		val = "";
 	    }
 	    break;
-	case "wcsradius":
-	case "wcsoradius":
-	case "wcslength":
-	case "wcswidth":
-	case "wcsr1":
-	    if( obj.pub.wcssizestr ){
-		val = fmt(obj.pub.wcssizestr[0]);
+	case "regstr":
+	    if( that.params.wcssys === "image"    ||
+		that.params.wcssys === "physical" ||
+		!obj.pub.wcsstr                    ){
+		val = obj.pub.imsys + "; " + obj.pub.imstr;
+	    } else {
+		val = obj.pub.wcssys + "; " + obj.pub.wcsstr;
 	    }
 	    break;
-	case "wcsheight":
-	case "wcsr2":
-	    if( obj.pub.wcssizestr ){
-		val = fmt(obj.pub.wcssizestr[1]);
+	case "xpos":
+	    switch(that.params.wcssys){
+	    case 'image':
+		val = sprintf('%.1f', obj.pub.x);
+		break;
+	    case 'physical':
+		if( obj.pub.lcs ){
+		    val = sprintf('%.1f', obj.pub.lcs.x);
+		} else {
+		    val = sprintf('%.1f', obj.pub.x);
+		}
+		break;
+	    default:
+		val = sprintf('%.6f', obj.pub.ra);
+		break;
+	    }
+	    // save for later processing
+	    ra = val;
+	    break;
+	case "ypos":
+	    switch(that.params.wcssys){
+	    case 'image':
+		val = sprintf('%.1f', obj.pub.y);
+		break;
+	    case 'physical':
+		if( obj.pub.lcs ){
+		    val = sprintf('%.1f', obj.pub.lcs.y);
+		} else {
+		    val = sprintf('%.1f', obj.pub.y);
+		}
+		break;
+	    default:
+		val = sprintf('%.6f', obj.pub.dec);
+		break;
+	    }
+	    // save for later processing
+	    dec = val;
+	    break;
+	case "radius":
+	case "oradius":
+	case "length":
+	case "width":
+	case "r1":
+	    switch(that.params.wcssys){
+	    case 'image':
+	    case 'physical':
+		if( obj.pub[key] !== undefined ){
+		    val = fmt(obj.pub[key]);
+		}
+		break;
+	    default:
+		if( obj.pub.wcssizestr ){
+		    val = fmt(obj.pub.wcssizestr[0]);
+		}
+		break;
+	    }
+	    break;
+	case "height":
+	case "r2":
+	    switch(that.params.wcssys){
+	    case 'image':
+	    case 'physical':
+		if( obj.pub[key] !== undefined ){
+		    val = fmt(obj.pub[key]);
+		}
+		break;
+	    default:
+		if( obj.pub.wcssizestr ){
+		    val = fmt(obj.pub.wcssizestr[1]);
+		}
+		break;
+	    }
+	    break;
+	case "wcssys":
+	    // add all wcs sys options
+	    el = $(form).find("[name='" + key + "']");
+	    if( !el.find('option').length ){
+		for(i=0; i<JS9.wcssyss.length; i++){
+		    wcssys = JS9.wcssyss[i];
+		    el.append("<option>" + wcssys + "</option>");
+		}
+	    }
+	    el.find('option').each(function(index, element){
+		if( that.params.wcssys === element.value ){
+		    val = element.value;
+		}
+	    });
+	    break;
+	case "altwcssys":
+	    // add all wcs sys options
+	    el = $(form).find("[name='" + key + "']");
+	    if( !el.find('option').length ){
+		for(i=0; i<JS9.wcssyss.length; i++){
+		    wcssys = JS9.wcssyss[i];
+		    if( (wcssys === "image") || (wcssys === "physical") ){
+			continue;
+		    }
+		    el.append("<option>" + wcssys + "</option>");
+		}
+	    }
+	    val = $(form).data("wcssys");
+	    if( !val ){
+		el.find('option').each(function(index, element){
+		    if( that.params.wcssys === element.value ){
+			val = element.value;
+		    }
+		});
 	    }
 	    break;
 	case "wcsunits":
@@ -11048,6 +11418,9 @@ JS9.Regions.initConfigForm = function(obj){
 		val = obj.params.children[0].obj.text;
 	    }
 	    break;
+	case "id":
+	    val = obj.pub.id;
+	    break;
 	default:
 	    if( obj.pub[key] !== undefined ){
 		val = fmt(obj.pub[key]);
@@ -11056,9 +11429,23 @@ JS9.Regions.initConfigForm = function(obj){
 	}
 	$(this).val(val);
     });
+    if( (this.params.wcssys === "image") ||
+	(this.params.wcssys === "physical") ){
+	$(form).find("[name='altwcssys']").hide();
+    } else {
+	$(form).find("[name='altwcssys']").show();
+	// process altwcs, if necessary
+	if( altwcssys && (that.params.wcssys !== altwcssys) ){
+	    s = that.wcs2wcs(null, altwcssys, ra, dec).split(/\s+/);
+	    $(form).find("[name='xpos']").val(s[0]);
+	    $(form).find("[name='ypos']").val(s[1]);
+	}
+    }
     // wcs display
     if( obj.pub.wcsstr ){
 	$(form + ".wcs").removeClass("nodisplay");
+    } else {
+	$(form + ".image").removeClass("nodisplay");
     }
     // child text display for shapes, editable if no existing children yet
     if( obj.type !== "text" ){
@@ -11095,8 +11482,10 @@ JS9.Regions.initConfigForm = function(obj){
     switch(obj.pub.shape){
     case "box":
     case "ellipse":
-    case "text":
 	$(form + ".angle").removeClass("nodisplay");
+	break;
+    case "text":
+	$(form + ".textangle").removeClass("nodisplay");
 	break;
     }
     // save the image for later processing
@@ -11105,12 +11494,43 @@ JS9.Regions.initConfigForm = function(obj){
     $(form).data("shape", obj);
     // save the window id for later processing
     $(form).data("winid", winid);
+    // add tooltip callbacks (not mobile: ios buttons stop working!)
+    if( !$(form).data("tooltipInit") ){
+	$(form).data("tooltipInit", true);
+	if( JS9.BROWSER[3] ){
+	    mover = "touchstart";
+	    mout = "touchend";
+	} else {
+	    mover = "mouseover";
+	    mout = "mouseout";
+	}
+	$(".col_R").on(mover, function() {
+	    var html, nhtml;
+	    var tooltip = $(this).find("input").data("tooltip");
+	    var el = $(this).closest(".dhtmlwindow").find(".drag-handle");
+	    if( tooltip && el.length ){
+		html = $(el).html();
+		nhtml = html.replace(/^[^\<]+/,
+				     "Region Configuration" + ": " + tooltip);
+		$(el).html(nhtml);
+	    }
+	});
+	$(".col_R").on(mout, function() {
+	    var html, nhtml;
+	    var el = $(this).closest(".dhtmlwindow").find(".drag-handle");
+	    if( el.length ){
+		html = $(el).html();
+		nhtml = html.replace(/^[^\<]+/, "Region Configuration");
+		$(el).html(nhtml);
+	    }
+	});
+    }
 };
 
 // process the config form to change the specified shape
 // call using image context
-JS9.Regions.processConfigForm = function(obj, winid, arr){
-    var i, key, nkey, val, nval, nopts;
+JS9.Regions.processConfigForm = function(form, obj, winid, arr){
+    var i, s, key, nkey, val, nval, nopts, altwcssys;
     var alen = arr.length;
     var opts = {};
     var wcsinfo = this.raw.wcsinfo || {cdelt1: 1, cdelt2: 1};
@@ -11151,6 +11571,18 @@ JS9.Regions.processConfigForm = function(obj, winid, arr){
 	}
 	if( (key === "angle") ){
 	    return obj.angle !== -parseFloat(val);
+	}
+	if( (key === "ix") ){
+	    return fmtcheck(obj.pub.x, JS9.saostrtod(val));
+	}
+	if( (key === "iy") ){
+	    return fmtcheck(obj.pub.y, JS9.saostrtod(val));
+	}
+	if( (key === "px") ){
+	    return fmtcheck(obj.pub.lcs.x, JS9.saostrtod(val));
+	}
+	if( (key === "py") ){
+	    return fmtcheck(obj.pub.lcs.y, JS9.saostrtod(val));
 	}
 	if( (key === "ra") ){
 	    return fmtcheck(JS9.saostrtod(obj.pub.wcsposstr[0]),
@@ -11193,6 +11625,24 @@ JS9.Regions.processConfigForm = function(obj, winid, arr){
     for(i=0; i<alen; i++){
 	key = arr[i].name;
 	val = arr[i].value;
+	// pos keys have to be converted to correct type of position
+	if( key === "xpos" || key === "ypos" ){
+	    switch(this.params.wcssys){
+	    case 'image':
+		key = "i" + key.charAt(0);
+		break;
+	    case 'physical':
+		key = "p" + key.charAt(0);
+		break;
+	    default:
+		if( key === "xpos" ){
+		    key = "ra";
+		} else {
+		    key = "dec";
+		}
+		break;
+	    }
+	}
 	switch(key){
 	case "text":
 	    if( obj.type === "text" ){
@@ -11220,7 +11670,23 @@ JS9.Regions.processConfigForm = function(obj, winid, arr){
 		}
 	    }
 	    break;
-	case "x":
+	case "ix":
+	    if( newval(obj, key, val) ){
+		opts.x = getval(val);
+		if( opts.y === undefined ){
+		    opts.y = obj.pub.y;
+		}
+	    }
+	    break;
+	case "iy":
+	    if( newval(obj, key, val) ){
+		opts.y = getval(val);
+		if( opts.x === undefined ){
+		    opts.x = obj.pub.x;
+		}
+	    }
+	    break;
+	case "px":
 	    if( newval(obj, key, val) ){
 		opts.px = getval(val);
 		if( opts.py === undefined ){
@@ -11228,7 +11694,7 @@ JS9.Regions.processConfigForm = function(obj, winid, arr){
 		}
 	    }
 	    break;
-	case "y":
+	case "py":
 	    if( newval(obj, key, val) ){
 		opts.py = getval(val);
 		if( opts.px === undefined ){
@@ -11252,32 +11718,54 @@ JS9.Regions.processConfigForm = function(obj, winid, arr){
 		}
 	    }
 	    break;
-	case "wcsradius":
-	case "wcslength":
-	case "wcswidth":
-	case "wcsr1":
-	    nval = JS9.strtoscaled(val);
-	    if( nval.dtype === "." ){
-		val = nval.dval;
-	    } else {
-		val = Math.abs(nval.dval / wcsinfo.cdelt1);
-	    }
-	    nkey = key.replace("wcs", "");
-	    if( newval(obj, nkey, val) ){
-		opts[nkey] = getval(val);
+	case "wcssys":
+	    break;
+	case "radius":
+	case "length":
+	case "width":
+	case "r1":
+	    switch(this.params.wcssys){
+	    case 'image':
+	    case 'physical':
+		if( newval(obj, key, val) ){
+		    opts[key] = getval(val);
+		}
+		break;
+	    default:
+		nval = JS9.strtoscaled(val);
+		if( nval.dtype === "." ){
+		    val = nval.dval;
+		} else {
+		    val = Math.abs(nval.dval / wcsinfo.cdelt1);
+		}
+		nkey = key.replace("wcs", "");
+		if( newval(obj, nkey, val) ){
+		    opts[nkey] = getval(val);
+		}
+		break;
 	    }
 	    break;
-	case "wcsheight":
-	case "wcsr2":
-	    nval = JS9.strtoscaled(val);
-	    if( nval.dtype === "." ){
-		val = nval.dval;
-	    } else {
-		val = Math.abs(nval.dval / wcsinfo.cdelt2);
-	    }
-	    nkey = key.replace("wcs", "");
-	    if( newval(obj, nkey, val) ){
-		opts[nkey] = getval(val);
+	case "height":
+	case "r2":
+	    switch(this.params.wcssys){
+	    case 'image':
+	    case 'physical':
+		if( newval(obj, key, val) ){
+		    opts[key] = getval(val);
+		}
+		break;
+	    default:
+		nval = JS9.strtoscaled(val);
+		if( nval.dtype === "." ){
+		    val = nval.dval;
+		} else {
+		    val = Math.abs(nval.dval / wcsinfo.cdelt2);
+		}
+		nkey = key.replace("wcs", "");
+		if( newval(obj, nkey, val) ){
+		    opts[nkey] = getval(val);
+		}
+		break;
 	    }
 	    break;
 	case "misc":
@@ -11291,6 +11779,17 @@ JS9.Regions.processConfigForm = function(obj, winid, arr){
 		opts[key] = getval(val);
 	    }
 	    break;
+	}
+    }
+    if( opts.ra && opts.dec ){
+	// get alternate wcssys, if necessary
+	altwcssys = $(form).data("wcssys");
+	// process altwcs, if necessary
+	if( altwcssys && (this.params.wcssys !== altwcssys) ){
+	    s = this.wcs2wcs(altwcssys, null, opts.ra, opts.dec)
+		.split(/\s+/);
+	    opts.ra = s[0];
+	    opts.dec = s[1];
 	}
     }
     // change the shape
@@ -12440,10 +12939,32 @@ JS9.lookupVfile = function(vfile){
     return arr;
 };
 
+// load javascript dynamically
+// https://stackoverflow.com/questions/21294/dynamically-load-a-javascript-file
+JS9.loadScript = function(url, func, error){
+    // adding the script tag to the head as suggested before
+    var head = document.getElementsByTagName('head')[0];
+    var script = document.createElement('script');
+    script.type = 'text/javascript';
+    // callback
+    if( func ){
+	script.onload = func;
+    }
+    // error
+    if( error ){
+	script.onerror = error;
+    }
+    script.src = url;
+    // fire the loading
+    head.appendChild(script);
+};
+
 // fetch a file URL (as a blob) and process it
 // (as of 2/2015: can't use $.ajax to retrieve a blob, so use low-level xhr)
 JS9.fetchURL = function(name, url, opts, handler) {
     var xhr = new XMLHttpRequest();
+    // opts is optional
+    opts = opts || {};
     // sanity check
     if( !name && !url ){
 	JS9.error("invalid url specification for fetchURL");
@@ -12456,8 +12977,8 @@ JS9.fetchURL = function(name, url, opts, handler) {
     if( !name ){
 	name = /([^\\\/]+)$/.exec(url)[1];
     }
-    // avoid the cache (Safari is especially agressive about caching)
-    if( !url.match(/\?/) ){
+    // avoid the cache (Safari is especially agressive) for FITS files
+    if( !opts.allowCache && !url.match(/\?/) ){
 	url += "?r=" + Math.random();
     }
     // set up connection
@@ -12576,6 +13097,7 @@ JS9.fitsLibrary = function(s){
 	break;
     }
     // common code
+    JS9.fits.ready = true;
     JS9.fits.name = t;
     JS9.fits.options.error = JS9.error;
     JS9.fits.options.waiting = JS9.waiting;
@@ -12719,7 +13241,7 @@ JS9.fits2RepFile = function(display, file, opts, xtype, func){
 	JS9.error("unknown FITS representation type: " + xtype);
 	break;
     }
-    xopts.fits = file;
+    xopts.fits = JS9.cleanPath(file);
     xopts.parent = true;
     // start the waiting!
     JS9.waiting(true, display);
@@ -12763,8 +13285,8 @@ JS9.fits2RepFile = function(display, file, opts, xtype, func){
 		// output is file and possibly parentFile
 		rarr = robj.stdout.split(/\n/);
 		// file
-		f = rarr[0].trim().replace(/\/\.\//, "/");
-		if( f === file ){
+		f = JS9.cleanPath(rarr[0]);
+		if( f === xopts.fits ){
 		    // same file (imsection not run)
 		    nopts = $.extend(true, {}, opts);
 		} else {
@@ -12791,7 +13313,7 @@ JS9.fits2RepFile = function(display, file, opts, xtype, func){
 		    }
 		    // look for parentFile (relative to helper, not install)
 		    if( rarr[2] ){
-			pf = rarr[2].trim().replace(/\/\.\//, "/");
+			pf = JS9.cleanPath(rarr[2]);
 			nopts.parentFile = pf;
 			// now add extension info, if possible
 			if( nopts.extname ){
@@ -13629,7 +14151,7 @@ JS9.colorToHex = function(colour){
     "yellow":"#ffff00","yellowgreen":"#9acd32"};
     var c;
     if( !colour ){
-	return;
+	return "";
     }
     c = colour.toLowerCase();
     if( typeof colours[c] !== 'undefined' ){
@@ -13659,6 +14181,13 @@ JS9.strtoscaled = function(s){
     return {dval: dval, dtype: dtype};
 };
 
+// clean file path
+JS9.cleanPath = function(s){
+    if( !s ){
+	return "";
+    }
+    return s.trim().replace(/\/\.\//, "/").replace(/^\.\//, "");
+};
 
 // ---------------------------------------------------------------------
 // End of Utilities
@@ -14289,264 +14818,49 @@ JS9.instantiatePlugins = function(){
 };
 
 // ---------------------------------------------------------------------
-// the init routine to start up JS9
+// the init routine to start up the Emscripten runtime
 // ---------------------------------------------------------------------
 
-JS9.init = function(){
-    var uopts;
-    // check for HTML5 canvas, which we need
-    if( !window.HTMLCanvasElement ){
-	JS9.error("sorry: your browser does not support JS9 (no HTML5 canvas support). Try a modern version of Firefox, Chrome, or Safari.");
+JS9.initEmscripten = function(){
+    var opts;
+    // sanity check
+    if( window.hasOwnProperty("Astroem") ){
+	return;
     }
-    // check for JSON, which we need
-    if( !JSON ){
-	JS9.error("sorry: your browser does not support JS9 (no JSON support). Try a modern version of Firefox, Chrome, or Safari.");
-    }
-    // get relative location of installed js9.css file
-    // which tells us where JS9 installed files (and the helper) are located
-    if( !JS9.INSTALLDIR ){
-	try{
-	    JS9.INSTALLDIR = $('link[href$="js9.css"]')
-		.attr("href")
-		.replace(/js9\.css$/, "") || "";
-	} catch(e){
-	    JS9.INSTALLDIR = "";
-	}
-	JS9.TOROOT = JS9.INSTALLDIR.replace(/([^\/.])+/g, "..");
-    }
-    if( window.hasOwnProperty("Kinetic") && !window.hasOwnProperty("fabric") ){
-	JS9.error("please load fabric.js instead of Kinetic.js");
-    }
-    // load web worker
-    if( window.Worker && !JS9.allinone){
-	try{ JS9.worker = new JS9.WebWorker(JS9.InstallDir(JS9.WORKERFILE)); }
-	catch(e){}
-    }
-    // set up the dynamic drive html window
-    if( JS9.LIGHTWIN === "dhtml" ){
-	// Creation of dhtmlwindowholder was done by a document.write in
-	// dhtmlwindow.js. We removed it from dhtmlwindow.js file because it
-	// intefered with the jquery search for js9.css above. Oh boy ...
-	// But it has to be somewhere!
-	$("<div>")
-	    .attr("id", "dhtmlwindowholder")
-	    .appendTo($(document.body))
-	    .append("<span style='display:none'>.</span>");
-	// allow in-line specification of images for all-in-one configuration
-	if( JS9.allinone ){
-	    dhtmlwindow.imagefiles = [JS9.allinone.min,
-				      JS9.allinone.close,
-				      JS9.allinone.restore,
-				      JS9.allinone.resize];
-	} else {
-	    dhtmlwindow.imagefiles=[JS9.InstallDir("images/min.gif"),
-				    JS9.InstallDir("images/close.gif"),
-				    JS9.InstallDir("images/restore.gif"),
-				    JS9.InstallDir("images/resize.gif")];
-	}
-	// once a window is loaded, set jupyter focus, if necessary
-	if( window.hasOwnProperty("Jupyter") ){
-	   $("#dhtmlwindowholder").arrive("input", function(){
-	       JS9.jupyterFocus($(this).parent());
-	   });
-	}
-    }
-    // use plotly if loaded separately, otherwise use internal flot
-    JS9.globalOpts.plotLibrary = JS9.globalOpts.plotLibrary || "flot";
-    if( (JS9.globalOpts.plotLibrary === "plotly") &&
-	!window.hasOwnProperty("Plotly") ){
-	JS9.globalOpts.plotLibrary = "flot";
-    }
-    // if js9 prefs were defined/loaded explicitly, merge properties
-    if( window.hasOwnProperty("JS9Prefs") && typeof JS9Prefs === "object" ){
-	JS9.mergePrefs(JS9Prefs);
-	// if we have regionOpts from preferences, add them to Regions.opts
-	$.extend(true, JS9.Regions.opts, JS9.regionOpts);
-    } else {
-	// look for and load json pref files
-	// (set this to false in the page to avoid loading a prefs file)
-	if( JS9.PREFSFILE ){
-	    // load site preferences, if possible
-	    JS9.loadPrefs(JS9.InstallDir(JS9.PREFSFILE), 1);
-	    // load page preferences, if possible
-	    JS9.loadPrefs(JS9.PREFSFILE, 0);
-	    // if we have regionOpts from preferences, add them to Regions.opts
-	    $.extend(true, JS9.Regions.opts, JS9.regionOpts);
-	}
-    }
-    // reset protocol for file:
-    if( JS9.globalOpts.helperProtocol === "file:" ){
-	JS9.globalOpts.helperProtocol = "http:";
-    }
-    // regularize resize params
-    if( !JS9.globalOpts.resize ){
-	JS9.globalOpts.resizeHandle = false;
-    }
-    // turn off resize on mobile platforms
-    if( JS9.BROWSER[3] ){
-	JS9.globalOpts.resizeHandle = false;
-    }
-    // add suffix
-    JS9.globalOpts.helperProtocol += "//";
-    // replace with global opts with user opts, if necessary
-    if( window.hasOwnProperty("localStorage") ){
-	try{ uopts = localStorage.getItem("images"); }
-	catch(e){ uopts = null; }
-	if( uopts ){
-	    try{ JS9.userOpts.images = JSON.parse(uopts); }
-	    catch(ignore){}
-	    if( JS9.userOpts.images ){
-		$.extend(true, JS9.imageOpts, JS9.userOpts.images);
+    // load astroem, based on whether we have native WebAssembly or not
+    opts = {responseType: "arraybuffer", allowCache: true};
+    if( JS9.globalOpts.useWasm          &&
+	typeof WebAssembly === 'object' &&
+	location.protocol !== "file:"   ){
+	JS9.globalOpts.astroemURL = JS9.InstallDir("astroemw.wasm");
+	// load astroem wasm file
+	JS9.fetchURL(JS9.globalOpts.astroemURL, null, opts, function(data){
+	    // tell Emscripten we already have wasm binary
+	    // eslint-disable-next-line no-unused-vars
+	    Module.wasmBinary = data;
+	    JS9.globalOpts.astroemURL = JS9.InstallDir("astroemw.js");
+	    // load astroem wasm js file
+	    try{
+		JS9.loadScript(JS9.globalOpts.astroemURL);
 	    }
-	}
-	try{ uopts = localStorage.getItem("regions"); }
-	catch(e){ uopts = null; }
-	if( uopts ){
-	    try{ JS9.userOpts.regions = JSON.parse(uopts); }
-	    catch(ignore){}
-	    if( JS9.userOpts.regions ){
-		$.extend(true, JS9.Regions.opts, JS9.userOpts.regions);
+	    catch(e){
+		JS9.error("can't find "+JS9.globalOpts.astroemURL);
 	    }
-	}
-	// this gets replaced below
-	try{ uopts = localStorage.getItem("fits"); }
-	catch(e){ uopts = null; }
-	if( uopts ){
-	    try{ JS9.userOpts.fits = JSON.parse(uopts); }
-	    catch(ignore){}
-	}
-	try{ uopts = localStorage.getItem("displays"); }
-	catch(e){ uopts = null; }
-	if( uopts ){
-	    try{ JS9.userOpts.displays = JSON.parse(uopts); }
-	    catch(ignore){}
-	    if( JS9.userOpts.displays ){
-		$.extend(true, JS9.globalOpts, JS9.userOpts.displays);
-	    }
-	}
-    }
-    // add handler for postMessage events
-    window.addEventListener("message", function(ev){
-	var s;
-	var msg;
-	var data = ev.data;
-	// For Chrome, origin property is in the ev.originalEvent object
-	var origin = ev.origin || ev.originalEvent.origin;
-	if( origin === "null" ){
-	    origin = "unknown";
-	}
-	// if postMessage handling is disabled, just (log and) return
-	if( !JS9.globalOpts.postMessage ){
-	    if( JS9.DEBUG ){
-		s = sprintf("JS9 ignoring postMessage, origin: %s", origin);
-		if( typeof data === "string" ){
-		    s += sprintf(" data: %s", data);
-		} else if( typeof data === "object" ){
-		    s += sprintf(" obj: %s", JSON.stringify(Object.keys(data)));
-		} else {
-		    s += sprintf(" typeof: %s", typeof data);
-		}
-		JS9.log(s);
-	    }
-	    return;
-	}
-	// var origin = ev.origin;
-	// var source = ev.source;
-	if( typeof data === "string" ){
-	    // json string passed (we hope)
-	    try{ msg = JSON.parse(data); }
-	    catch(e){ JS9.error("can't parse msg: "+data, e); }
-	} else if( typeof data === "object" ){
-	    // object was passed directly
-	    msg = data;
-	} else {
-	    JS9.error("invalid msg from postMessage");
-	}
-	// call the msg handler for JS9 API calls
-	JS9.msgHandler(msg, function(stdout, stderr, errcode, a){
-	    var res;
-            a = a || {};
-	    res = {name: a.name, rtype: a.rtype, rdata: stdout,
-		   stdout: stdout, stderr: stderr, errcode: errcode};
-	    parent.postMessage({cmd: msg.cmd, res: res}, "*");
 	});
-    }, false);
-    // set debug flag
-    JS9.DEBUG = JS9.DEBUG || JS9.globalOpts.debug || 0;
-    // add keyboard plugin actions
-    if( JS9.hasOwnProperty("Keyboard") ){
-	// eslint-disable-next-line no-unused-vars
-	JS9.Keyboard.Actions["move selected region up"] = function(im, ipos, evt){
-	    var canvas, layerName;
-	    var inc = 1;
-	    // sanity check
-	    if( !im ){ return; }
-	    evt.preventDefault();
-	    if( JS9.specialKey(evt) ){ inc *= 5; }
-	    layerName = im.layer || "regions";
-	    canvas = im.display.layers[layerName].canvas;
-	    im.changeShapes(layerName, "selected", {dy: inc});
-	    canvas.fire("mouse:up");
-	};
-	JS9.Keyboard.Actions["move selected region down"] = function(im, ipos, evt){
-	    var canvas, layerName;
-	    var inc = -1;
-	    // sanity check
-	    if( !im ){ return; }
-	    evt.preventDefault();
-	    if( JS9.specialKey(evt) ){ inc *= 5; }
-	    layerName = im.layer || "regions";
-	    canvas = im.display.layers[layerName].canvas;
-	    im.changeShapes(layerName, "selected", {dy: inc});
-	    canvas.fire("mouse:up");
-	};
-	JS9.Keyboard.Actions["move selected region left"] = function(im, ipos, evt){
-	    var canvas, layerName;
-	    var inc = -1;
-	    // sanity check
-	    if( !im ){ return; }
-	    evt.preventDefault();
-	    if( JS9.specialKey(evt) ){ inc *= 5; }
-	    layerName = im.layer || "regions";
-	    canvas = im.display.layers[layerName].canvas;
-	    im.changeShapes(layerName, "selected", {dx: inc});
-	    canvas.fire("mouse:up");
-	};
-	JS9.Keyboard.Actions["move selected region right"] = function(im, ipos, evt){
-	    var canvas, layerName;
-	    var inc = 1;
-	    // sanity check
-	    if( !im ){ return; }
-	    evt.preventDefault();
-	    if( JS9.specialKey(evt) ){ inc *= 5; }
-	    layerName = im.layer || "regions";
-	    canvas = im.display.layers[layerName].canvas;
-	    im.changeShapes(layerName, "selected", {dx: inc});
-	    canvas.fire("mouse:up");
-	};
-	// eslint-disable-next-line no-unused-vars
-	JS9.Keyboard.Actions["remove selected region"] = function(im, ipos, evt){
-	    var canvas, layerName;
-	    // sanity check
-	    if( !im ){ return; }
-	    evt.preventDefault();
-	    layerName = im.layer || "regions";
-	    canvas = im.display.layers[layerName].canvas;
-	    im.removeShapes(layerName, "selected");
-	    im.display.clearMessage(layerName);
-	    canvas.fire("mouse:up");
-	};
-	JS9.Keyboard.Actions["make regions layer active"] = function(im, ipos, evt){
-	    // sanity check
-	    if( !im ){ return; }
-	    evt.preventDefault();
-	    im.activeShapeLayer("regions");
-	};
+    } else {
+	JS9.globalOpts.astroemURL = JS9.InstallDir("astroem.js");
+	// load astroem ams.js file
+	try{
+	    JS9.loadScript(JS9.globalOpts.astroemURL);
+	}
+	catch(e){
+	    JS9.error("can't find "+JS9.globalOpts.astroemURL);
+	}
     }
-    // initialize image filters
-    if( window.hasOwnProperty("ImageFilters") ){
-	JS9.ImageFilters = ImageFilters;
-    }
+};
+
+// initialize FITS support
+JS9.initFITS = function(){
     // initialize astronomy emscripten routines (wcslib, etc), if possible
     if( window.hasOwnProperty("Astroem") ){
 	JS9.vmalloc = Astroem.vmalloc;
@@ -14571,52 +14885,18 @@ JS9.init = function(){
 	JS9.zscale = Astroem.zscale;
 	JS9.tanhdr = Astroem.tanhdr;
 	JS9.reproject = Astroem.reproject;
-    }
-    // configure fits library
-    if( window.hasOwnProperty("Fitsy") ){
-	JS9.fitsLibrary("fitsy");
-	JS9.fits = Fitsy;
-    } else if( window.hasOwnProperty("Astroem") ){
 	JS9.fitsLibrary("cfitsio");
-	JS9.fits = Astroem;
+    } else if( window.hasOwnProperty("Fitsy") ){
+	JS9.fitsLibrary("fitsy");
     }
-    // init main display(s)
-    $("div.JS9").each(function(){
-	JS9.checkNew(new JS9.Display($(this)));
-    });
-    // register essential plugins
-    JS9.RegisterPlugin(JS9.MouseTouch.CLASS, JS9.MouseTouch.NAME,
-		       JS9.MouseTouch.init,
-		       {menuItem: "Mouse/Touch",
-			onplugindisplay: JS9.MouseTouch.init,
-			help: "help/mousetouch.html",
-			winTitle: "Mouse/Touch Actions",
-			winResize: true,
-			winDims: [JS9.MouseTouch.WIDTH,JS9.MouseTouch.HEIGHT]});
-    JS9.RegisterPlugin(JS9.Regions.CLASS, JS9.Regions.NAME,
-		       JS9.Regions.init,
-		       {divArgs: ["regions"],
-			winDims: [0, 0]});
-    // find divs associated with each plugin and run the constructor
-    JS9.instantiatePlugins();
-    // sort plugins
-    JS9.plugins.sort(function(a,b){
-	var t1 = a.opts.menuItem;
-	var t2 = b.opts.menuItem;
-	if( !t1 ){
-	    return 1;
-	}
-	if( !t2 ){
-	    return -1;
-	}
-	if( t1 < t2 ){
-	    return -1;
-	}
-	if( t1 > t2 ){
-	    return 1;
-	}
-	return 0;
-    });
+};
+
+// init colormaps
+JS9.initColormaps = function(){
+    // sanity check
+    if( !JS9.hasOwnProperty("Colormap") ){
+	return;
+    }
     // load colormaps
     JS9.checkNew(new JS9.Colormap("grey",
 	[[0,0], [1,1]],
@@ -14766,6 +15046,14 @@ JS9.init = function(){
 	return a;}())));
     JS9.checkNew(new JS9.Colormap("color",
 [[0,0,0], [0.18431, 0.18431, 0.18431], [0.37255, 0.37255, 0.37255], [0.56078, 0.56078, 0.56078], [0.74902, 0.74902, 0.74902], [0.93725, 0.93725, 0.93725], [0, 0.18431, 0.93725], [0, 0.37255, 0.74902], [0, 0.49804, 0.49804], [0, 0.74902, 0.30980], [0, 0.93725, 0], [0.30980, 0.62353, 0], [0.49804, 0.49804, 0], [0.62353, 0.30980, 0], [0.93725, 0, 0], [0.74902, 0, 0.30980]]));
+};
+
+// init console commands
+JS9.initCommands = function(){
+    // sanity check
+    if( !JS9.hasOwnProperty("Command") ){
+	return;
+    }
     // load commands
     JS9.checkNew(new JS9.Command({
 	name: "analysis",
@@ -15189,16 +15477,333 @@ JS9.init = function(){
 	    }
 	}
     }));
-    // load external helper support
-    JS9.helper = new JS9.Helper();
-    //  for analysis forms, Enter should not Submit
+};
+
+// init keyboard plugin actions
+JS9.initKeyboardActions = function(){
+    // sanity check
+    if( !JS9.hasOwnProperty("Keyboard") ){
+	return;
+    }
+    // eslint-disable-next-line no-unused-vars
+    JS9.Keyboard.Actions["move selected region up"] = function(im, ipos, evt){
+	var canvas, layerName;
+	var inc = 1;
+	// sanity check
+	if( !im ){ return; }
+	evt.preventDefault();
+	if( JS9.specialKey(evt) ){ inc *= 5; }
+	layerName = im.layer || "regions";
+	canvas = im.display.layers[layerName].canvas;
+	im.changeShapes(layerName, "selected", {dy: inc});
+	canvas.fire("mouse:up");
+    };
+    JS9.Keyboard.Actions["move selected region down"] = function(im, ipos, evt){
+	var canvas, layerName;
+	var inc = -1;
+	// sanity check
+	if( !im ){ return; }
+	evt.preventDefault();
+	if( JS9.specialKey(evt) ){ inc *= 5; }
+	layerName = im.layer || "regions";
+	canvas = im.display.layers[layerName].canvas;
+	im.changeShapes(layerName, "selected", {dy: inc});
+	canvas.fire("mouse:up");
+    };
+    JS9.Keyboard.Actions["move selected region left"] = function(im, ipos, evt){
+	var canvas, layerName;
+	var inc = -1;
+	// sanity check
+	if( !im ){ return; }
+	evt.preventDefault();
+	if( JS9.specialKey(evt) ){ inc *= 5; }
+	layerName = im.layer || "regions";
+	canvas = im.display.layers[layerName].canvas;
+	im.changeShapes(layerName, "selected", {dx: inc});
+	canvas.fire("mouse:up");
+    };
+    JS9.Keyboard.Actions["move selected region right"] = function(im, ipos,evt){
+	var canvas, layerName;
+	var inc = 1;
+	// sanity check
+	if( !im ){ return; }
+	evt.preventDefault();
+	if( JS9.specialKey(evt) ){ inc *= 5; }
+	layerName = im.layer || "regions";
+	canvas = im.display.layers[layerName].canvas;
+	im.changeShapes(layerName, "selected", {dx: inc});
+	canvas.fire("mouse:up");
+    };
+    // eslint-disable-next-line no-unused-vars
+    JS9.Keyboard.Actions["remove selected region"] = function(im, ipos, evt){
+	var canvas, layerName;
+	// sanity check
+	if( !im ){ return; }
+	evt.preventDefault();
+	layerName = im.layer || "regions";
+	canvas = im.display.layers[layerName].canvas;
+	im.removeShapes(layerName, "selected");
+	im.display.clearMessage(layerName);
+	canvas.fire("mouse:up");
+    };
+    JS9.Keyboard.Actions["make regions layer active"] = function(im, ipos, evt){
+	// sanity check
+	if( !im ){ return; }
+	evt.preventDefault();
+	im.activeShapeLayer("regions");
+    };
+};
+
+// init analysis
+JS9.initAnalysis = function(){
+    // for analysis forms, Enter should not Submit, but allow specification
+    // of the name of an element to click
     $(document).on("keyup keypress", ".js9AnalysisForm", function(e){
+	var that = $(this);
 	var code = e.which || e.keyCode;
+	var id;
 	if( code === 13 ){
 	    e.preventDefault();
+	    id = $(this).data("enterfunc");
+	    if( id ){
+		that.find("[name='" + id + "']").click();
+	    }
 	    return false;
 	}
     });
+};
+
+
+// ---------------------------------------------------------------------
+// the init routine to start up JS9
+// ---------------------------------------------------------------------
+
+JS9.init = function(){
+    var uopts;
+    // sanity check: need HTML5 canvas and JSON
+    if( !window.HTMLCanvasElement || !JSON ){
+	JS9.error("your browser does not support JS9 (no HTML5 canvas and/or JSON). Please try a modern version of Firefox, Chrome, Safari, Opera, or IE.");
+    }
+    // get relative location of installed js9.css file
+    // which tells us where JS9 installed files (and the helper) are located
+    if( !JS9.INSTALLDIR ){
+	try{
+	    JS9.INSTALLDIR = $('link[href$="js9.css"]')
+		.attr("href")
+		.replace(/js9\.css$/, "") || "";
+	} catch(e){
+	    JS9.INSTALLDIR = "";
+	}
+	if( JS9.INSTALLDIR ){
+	    JS9.INSTALLDIR = JS9.cleanPath(JS9.INSTALLDIR);
+	}
+	JS9.TOROOT = JS9.INSTALLDIR.replace(/([^\/.])+/g, "..");
+    }
+    // set up the dynamic drive html window
+    if( JS9.LIGHTWIN === "dhtml" ){
+	// Creation of dhtmlwindowholder was done by a document.write in
+	// dhtmlwindow.js. We removed it from dhtmlwindow.js file because it
+	// intefered with the jquery search for js9.css above. Oh boy ...
+	// But it has to be somewhere!
+	$("<div>")
+	    .attr("id", "dhtmlwindowholder")
+	    .appendTo($(document.body))
+	    .append("<span style='display:none'>.</span>");
+	// allow in-line specification of images for all-in-one configuration
+	if( JS9.allinone ){
+	    dhtmlwindow.imagefiles = [JS9.allinone.min,
+				      JS9.allinone.close,
+				      JS9.allinone.restore,
+				      JS9.allinone.resize];
+	} else {
+	    dhtmlwindow.imagefiles=[JS9.InstallDir("images/min.gif"),
+				    JS9.InstallDir("images/close.gif"),
+				    JS9.InstallDir("images/restore.gif"),
+				    JS9.InstallDir("images/resize.gif")];
+	}
+	// once a window is loaded, set jupyter focus, if necessary
+	if( window.hasOwnProperty("Jupyter") ){
+	   $("#dhtmlwindowholder").arrive("input", function(){
+	       JS9.jupyterFocus($(this).parent());
+	   });
+	}
+    }
+    // use plotly if loaded separately, otherwise use internal flot
+    JS9.globalOpts.plotLibrary = JS9.globalOpts.plotLibrary || "flot";
+    if( (JS9.globalOpts.plotLibrary === "plotly") &&
+	!window.hasOwnProperty("Plotly") ){
+	JS9.globalOpts.plotLibrary = "flot";
+    }
+    // if js9 prefs were defined/loaded explicitly, merge properties
+    if( window.hasOwnProperty("JS9Prefs") && typeof JS9Prefs === "object" ){
+	JS9.mergePrefs(JS9Prefs);
+	// if we have regionOpts from preferences, add them to Regions.opts
+	$.extend(true, JS9.Regions.opts, JS9.regionOpts);
+    } else {
+	// look for and load json pref files
+	// (set this to false in the page to avoid loading a prefs file)
+	if( JS9.PREFSFILE ){
+	    // load site preferences, if possible
+	    JS9.loadPrefs(JS9.InstallDir(JS9.PREFSFILE), 1);
+	    // load page preferences, if possible
+	    JS9.loadPrefs(JS9.PREFSFILE, 0);
+	    // if we have regionOpts from preferences, add them to Regions.opts
+	    $.extend(true, JS9.Regions.opts, JS9.regionOpts);
+	}
+    }
+    // regularize resize params
+    if( !JS9.globalOpts.resize ){
+	JS9.globalOpts.resizeHandle = false;
+    }
+    // turn off resize on mobile platforms
+    if( JS9.BROWSER[3] ){
+	JS9.globalOpts.resizeHandle = false;
+    }
+    // replace with global opts with user opts, if necessary
+    if( window.hasOwnProperty("localStorage") ){
+	try{ uopts = localStorage.getItem("images"); }
+	catch(e){ uopts = null; }
+	if( uopts ){
+	    try{ JS9.userOpts.images = JSON.parse(uopts); }
+	    catch(ignore){}
+	    if( JS9.userOpts.images ){
+		$.extend(true, JS9.imageOpts, JS9.userOpts.images);
+	    }
+	}
+	try{ uopts = localStorage.getItem("regions"); }
+	catch(e){ uopts = null; }
+	if( uopts ){
+	    try{ JS9.userOpts.regions = JSON.parse(uopts); }
+	    catch(ignore){}
+	    if( JS9.userOpts.regions ){
+		$.extend(true, JS9.Regions.opts, JS9.userOpts.regions);
+	    }
+	}
+	// this gets replaced below
+	try{ uopts = localStorage.getItem("fits"); }
+	catch(e){ uopts = null; }
+	if( uopts ){
+	    try{ JS9.userOpts.fits = JSON.parse(uopts); }
+	    catch(ignore){}
+	}
+	try{ uopts = localStorage.getItem("displays"); }
+	catch(e){ uopts = null; }
+	if( uopts ){
+	    try{ JS9.userOpts.displays = JSON.parse(uopts); }
+	    catch(ignore){}
+	    if( JS9.userOpts.displays ){
+		$.extend(true, JS9.globalOpts, JS9.userOpts.displays);
+	    }
+	}
+    }
+    // set debug flag
+    JS9.DEBUG = JS9.DEBUG || JS9.globalOpts.debug || 0;
+    // init main display(s)
+    $("div.JS9").each(function(){
+	JS9.checkNew(new JS9.Display($(this)));
+    });
+    // load web worker
+    if( window.Worker && !JS9.allinone){
+	try{ JS9.worker = new JS9.WebWorker(JS9.InstallDir(JS9.WORKERFILE)); }
+	catch(e){}
+    }
+    // load emscripten
+    JS9.initEmscripten();
+    // initialize helper support
+    JS9.helper = new JS9.Helper();
+    // add handler for postMessage events
+    window.addEventListener("message", function(ev){
+	var s;
+	var msg;
+	var data = ev.data;
+	// For Chrome, origin property is in the ev.originalEvent object
+	var origin = ev.origin || ev.originalEvent.origin;
+	if( origin === "null" ){
+	    origin = "unknown";
+	}
+	// if postMessage handling is disabled, just (log and) return
+	if( !JS9.globalOpts.postMessage ){
+	    if( JS9.DEBUG ){
+		s = sprintf("JS9 ignoring postMessage, origin: %s", origin);
+		if( typeof data === "string" ){
+		    s += sprintf(" data: %s", data);
+		} else if( typeof data === "object" ){
+		    s += sprintf(" obj: %s", JSON.stringify(Object.keys(data)));
+		} else {
+		    s += sprintf(" typeof: %s", typeof data);
+		}
+		JS9.log(s);
+	    }
+	    return;
+	}
+	// var origin = ev.origin;
+	// var source = ev.source;
+	if( typeof data === "string" ){
+	    // json string passed (we hope)
+	    try{ msg = JSON.parse(data); }
+	    catch(e){ JS9.error("can't parse msg: "+data, e); }
+	} else if( typeof data === "object" ){
+	    // object was passed directly
+	    msg = data;
+	} else {
+	    JS9.error("invalid msg from postMessage");
+	}
+	// call the msg handler for JS9 API calls
+	JS9.msgHandler(msg, function(stdout, stderr, errcode, a){
+	    var res;
+            a = a || {};
+	    res = {name: a.name, rtype: a.rtype, rdata: stdout,
+		   stdout: stdout, stderr: stderr, errcode: errcode};
+	    parent.postMessage({cmd: msg.cmd, res: res}, "*");
+	});
+    }, false);
+    // intialize keyboard actions
+    if( JS9.hasOwnProperty("Keyboard") ){
+	JS9.initKeyboardActions();
+    }
+    // initialize image filters
+    if( window.hasOwnProperty("ImageFilters") ){
+	JS9.ImageFilters = ImageFilters;
+    }
+    // register essential plugins
+    JS9.RegisterPlugin(JS9.MouseTouch.CLASS, JS9.MouseTouch.NAME,
+		       JS9.MouseTouch.init,
+		       {menuItem: "Mouse/Touch",
+			onplugindisplay: JS9.MouseTouch.init,
+			help: "help/mousetouch.html",
+			winTitle: "Mouse/Touch Actions",
+			winResize: true,
+			winDims: [JS9.MouseTouch.WIDTH,JS9.MouseTouch.HEIGHT]});
+    JS9.RegisterPlugin(JS9.Regions.CLASS, JS9.Regions.NAME,
+		       JS9.Regions.init,
+		       {divArgs: ["regions"],
+			winDims: [0, 0]});
+    // find divs associated with each plugin and run the constructor
+    JS9.instantiatePlugins();
+    // sort plugins
+    JS9.plugins.sort(function(a,b){
+	var t1 = a.opts.menuItem;
+	var t2 = b.opts.menuItem;
+	if( !t1 ){
+	    return 1;
+	}
+	if( !t2 ){
+	    return -1;
+	}
+	if( t1 < t2 ){
+	    return -1;
+	}
+	if( t1 > t2 ){
+	    return 1;
+	}
+	return 0;
+    });
+    // initialize colormaps
+    JS9.initColormaps();
+    // initialize console commands
+    JS9.initCommands();
+    // init analysis
+    JS9.initAnalysis();
     // scroll to top
     $(document).scrollTop(0);
     // signal that JS9 init is complete
@@ -15540,8 +16145,7 @@ JS9.mkPublic("Load", function(file, opts){
 	JS9.waiting(false);
 	return;
     }
-    // save to get rid of whitespace
-    file = file.trim();
+    file = JS9.cleanPath(file);
     // check file extension
     ext = file.split(".").pop().toLowerCase();
     if( ext === "png" ){
@@ -15568,7 +16172,6 @@ JS9.mkPublic("Load", function(file, opts){
 });
 
 // create a new instance of JS9 in a window (light or new)
-// nb: unlike JS9.Load, this requires the opts param
 JS9.mkPublic("LoadWindow", function(file, opts, type, html, winopts){
     var id, did, head, body, win, winid, initialURL;
     var idbase = (type || "") + "win";
@@ -15633,11 +16236,13 @@ JS9.mkPublic("LoadWindow", function(file, opts, type, html, winopts){
             id = idbase + JS9.uniqueID();
 	}
 	// window opts
-	winopts = winopts || "width=540, height=605";
+	winopts = winopts || sprintf("width=%s, height=%s", JS9.globalOpts.newWindowWidth, JS9.globalOpts.newWindowHeight);
         // get our own file's header for css and js files
         // if this page is generated on the server side, hardwire this ...
         // if JS9 is not installed, hardwire this ...
         head = document.getElementsByTagName('head')[0].innerHTML;
+	// remove load of astroem[w].js, so it will be loaded during init
+	head = head.replace(/src=['"]astroemw?\.js['"]/, "");
         // but why doesn't the returned header contain the js9 js file??
 	// umm... it seems to have it, at least FF does as of 8/25/15 ...
 	if( !head.match(/src=["'].*js9\.js/)      &&
@@ -15731,7 +16336,7 @@ JS9.mkPublic("LoadProxy", function(url, opts){
 	    if( opts.fits2png === undefined ){
 		opts.fits2png = false;
 	    }
-	    f = robj.stdout.trim().replace(/\/\.\//, "/");
+	    f = JS9.cleanPath(robj.stdout);
 	    // proxy file
 	    opts.proxyFile = f;
 	    // relative path: add install dir prefix
@@ -15769,7 +16374,7 @@ JS9.mkPublic("Preload", function(arg1){
 	// if we are connected and have previously saved images, load now
 	// if connected is undefined, we have no back-end and we do our best
 	if( ((JS9.helper.connected === null) || JS9.helper.connected) &&
-	    (JS9.preloads.length > 0) ){
+	    JS9.fits.name && (JS9.preloads.length > 0) ){
 	    mode = 2;
 	} else {
 	    // do nothing
@@ -15777,10 +16382,10 @@ JS9.mkPublic("Preload", function(arg1){
 	}
 	break;
     case 1:
-	// boolean => inside the helper constructor, we are ready to load
+	// boolean => we are ready to load
 	if( typeof arg1 === "boolean" ){
 	    // if we have previously saved images, load now
-	    if( JS9.preloads.length > 0 ){
+	    if( arg1 && (JS9.preloads.length > 0) ){
 		mode = 2;
 	    } else {
 		// do nothing
@@ -15788,7 +16393,8 @@ JS9.mkPublic("Preload", function(arg1){
 	    }
 	} else {
 	    // image args => if we are connected,  we can load the images now
-	    if( (JS9.helper.connected === null) || JS9.helper.connected ){
+	    if( ((JS9.helper.connected === null) || JS9.helper.connected) &&
+	        JS9.fits.name ){
 		mode = 1;
 	    } else {
 		// save images and wait
@@ -15798,7 +16404,8 @@ JS9.mkPublic("Preload", function(arg1){
 	break;
     default:
 	// image args => if we already are connected, we can load the images now
-	if( (JS9.helper.connected === null) || JS9.helper.connected ){
+	if( ((JS9.helper.connected === null) || JS9.helper.connected) &&
+	    JS9.fits.name ){
 	    mode = 1;
 	} else {
 	    // save images and wait
@@ -16013,7 +16620,7 @@ JS9.mkPublic("OpenFileMenu", function(){
     var obj = JS9.parsePublicArgs(arguments);
     var display = JS9.lookupDisplay(obj.display);
     if( display ){
-	$("#openLocalFile-" + display.id).click();
+	$("#openLocalLoad-" + display.id).click();
     }
 });
 
@@ -16022,7 +16629,7 @@ JS9.mkPublic("OpenRegionsMenu", function(){
     var obj = JS9.parsePublicArgs(arguments);
     var display = JS9.lookupDisplay(obj.display);
     if( display ){
-	$("#openLocalRegions-" + display.id).click();
+	$("#openLocalLoadRegions-" + display.id).click();
     }
 });
 
@@ -16031,7 +16638,7 @@ JS9.mkPublic("OpenSessionMenu", function(){
     var obj = JS9.parsePublicArgs(arguments);
     var display = JS9.lookupDisplay(obj.display);
     if( display ){
-	$("#openLocalSession-" + display.id).click();
+	$("#openLocalLoadSession-" + display.id).click();
     }
 });
 
@@ -16040,7 +16647,7 @@ JS9.mkPublic("OpenCatalogsMenu", function(){
     var obj = JS9.parsePublicArgs(arguments);
     var display = JS9.lookupDisplay(obj.display);
     if( display ){
-	$("#openLocalCatalogs-" + display.id).click();
+	$("#openLocalLoadCatalog-" + display.id).click();
     }
 });
 
@@ -16049,7 +16656,7 @@ JS9.mkPublic("OpenColormapMenu", function(){
     var obj = JS9.parsePublicArgs(arguments);
     var display = JS9.lookupDisplay(obj.display);
     if( display ){
-	$("#openLocalColormap-" + display.id).click();
+	$("#openLocalLoadColormap-" + display.id).click();
     }
 });
 
@@ -16232,10 +16839,10 @@ JS9.mkPublic("SubmitAnalysis", function(el, aname, func){
     // make sure we have an image and run the analysis
     if( im ){
 	formjq = $(el).closest("form");
-	// try{ obj = formjq.serializeArray(); }
 	// make sure unchecked elements are in the array
 	try{
-	    obj = $(':input:visible', formjq).serializeArray();
+	    // obj = $(':input:visible', formjq).serializeArray();
+	    obj = formjq.serializeArray();
 	    obj = obj.concat($('#' + formjq.attr('id') + ' input[type=checkbox]:not(:checked)').map(function(){return {'name': this.name, 'value': 'false'};}).get());
 	}
 	catch(e){ obj = null; }
@@ -16486,7 +17093,12 @@ JS9.mkPublic("LoadRegions", function(file, opts){
 
 // construct directory starting with where JS9 is installed
 JS9.mkPublic("InstallDir", function(dir){
-    return JS9.INSTALLDIR + dir;
+    // sanity check
+    if( !dir ){
+	return "";
+    }
+    // add path to install directory, clean path a little bit
+    return JS9.cleanPath(JS9.INSTALLDIR + dir);
 });
 
 // add new display divs and/or new plugins
@@ -16638,6 +17250,34 @@ return JS9;
 
 // INIT: after document is loaded, perform js9 initialization
 $(document).ready(function(){
-"use strict";
-JS9.init();
+    // when all is ready, we can preload images
+    // when all is ready, we can preload images
+    $(document).on("JS9:ready", function(){
+	// so we can preload images and ...
+	JS9.Preload(true);
+    });
+    $(document).on("JS9:init", function(){
+	if( JS9.helper.ready && JS9.fits.ready ){
+	    // ... signal that we are completely ready
+	    $(document).trigger("JS9:ready", {status: "OK"});
+	}
+    });
+    // ... might need to wait for astroem (via emscripten) to finish ...
+    $(document).on("astroem:ready", function(){
+	// astroem is loaded: we can now initialize FITS support
+	JS9.initFITS();
+	if( JS9.helper.ready && JS9.inited ){
+	    // ... signal that we are completely ready
+	    $(document).trigger("JS9:ready", {status: "OK"});
+	}
+    });
+    // wait for helper
+    $(document).on("JS9:helperReady", function(){
+	if( JS9.fits.ready && JS9.inited ){
+	    // ... signal that we are completely ready
+	    $(document).trigger("JS9:ready", {status: "OK"});
+	}
+    });
+    // init JS9
+    JS9.init();
 });
